@@ -387,6 +387,7 @@ class DashboardStats(BaseModel):
     patch_advisory: Dict[str, int] = {}
     cve_counts: Dict[str, int] = {}
     treatment_breakdown: Dict[str, Dict[str, int]] = {}
+    action_plans_summary: Optional[Dict[str, Any]] = None
     asset_group_distribution: List[Dict[str, Any]]
     recent_scans: List[ScanOut]
 
@@ -926,7 +927,7 @@ class ActionPlanBase(BaseModel):
 
 class ActionPlanCreate(ActionPlanBase):
     initial_tasks: Optional[List[ActionTaskCreate]] = None
-    auto_link_vulnerabilities: bool = False
+    auto_link_vulnerabilities: bool = True
     tags: Optional[List[str]] = None
     scope_host_ips: Optional[List[str]] = None
     scope_plugin_ids: Optional[List[str]] = None
@@ -978,6 +979,7 @@ class ActionPlanPreviewImpactIn(BaseModel):
     target_plugin_id: Optional[str] = None
     scope_host_ips: Optional[List[str]] = None
     scope_plugin_ids: Optional[List[str]] = None
+    plan_id: Optional[int] = None
 
 
 class ActionPlanPreviewImpactOut(BaseModel):
@@ -1024,6 +1026,7 @@ class ActionPlanWizardHostOut(BaseModel):
     id: Optional[int] = None
     ip: str
     hostname: str = ""
+    os: Optional[str] = ""
     asset_group_id: Optional[int] = None
     asset_group_name: str = "Global"
     vuln_count: int = 0

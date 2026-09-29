@@ -39,7 +39,7 @@ services:
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin}
       - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@gvulstand.local}
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8888}:8000"
     volumes:
       - ./data/uploads:/app/data/uploads
       - ./frontend:/app/frontend

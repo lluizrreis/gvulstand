@@ -34,7 +34,10 @@ const App = {
     actionPlansStats: null,
     actionPlansView: 'list',
     actionPlansAssignees: [],
-    currentActionPlan: null
+    currentActionPlan: null,
+    actionPlansPage: 1,
+    actionPlansPageSize: 10,
+    planWizardHostOsFilter: ''
   },
 
   async init() {
@@ -282,6 +285,14 @@ const App = {
         this.loadInventoryData();
       });
     }
+
+    // Fecha dropdown de responsável do plano de ação ao clicar fora
+    document.addEventListener('click', (e) => {
+      const ownerWrapper = document.getElementById('plan-form-owner-wrapper');
+      if (ownerWrapper && !ownerWrapper.contains(e.target)) {
+        this.closePlanOwnerDropdown();
+      }
+    });
   },
 
   async checkSession() {
@@ -922,6 +933,15 @@ const App = {
       setVal('treat-remediated-high', (remediated.high || 0).toLocaleString());
       setVal('treat-remediated-med', (remediated.medium || 0).toLocaleString());
       setVal('treat-remediated-low', (remediated.low || 0).toLocaleString());
+
+      // Action Plans Breakdown KPIs
+      const ap = stats.action_plans_summary || {};
+      setVal('treat-action-plans-total', (ap.total_plans || 0).toLocaleString());
+      setVal('treat-action-plans-vulns-sub', (ap.total_vulns || 0).toLocaleString());
+      setVal('treat-action-plans-crit', (ap.critical || 0).toLocaleString());
+      setVal('treat-action-plans-high', (ap.high || 0).toLocaleString());
+      setVal('treat-action-plans-med', (ap.medium || 0).toLocaleString());
+      setVal('treat-action-plans-low', (ap.low || 0).toLocaleString());
 
       // Aging Breakdown KPIs
       const aging = stats.aging_breakdown || {};
@@ -4070,6 +4090,19 @@ const App = {
     const cardEl = document.getElementById('modal-vuln-action-plan-card');
     if (!cardEl) return;
 
+    const tStatus = (v.treatment_status || '').toLowerCase();
+
+    if (tStatus === 'remediated') {
+      cardEl.innerHTML = `
+        <div class="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center space-x-2.5 text-xs text-emerald-700 dark:text-emerald-300">
+          <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i>
+          <span class="font-medium">Vulnerabilidade já remediada. Não é necessária a criação de plano de ação.</span>
+        </div>
+      `;
+      this.refreshIcons();
+      return;
+    }
+
     if (v.active_action_plan_id) {
       cardEl.innerHTML = `
         <div class="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -4094,6 +4127,14 @@ const App = {
           </div>
         </div>
       `;
+    } else if (tStatus !== 'open') {
+      cardEl.innerHTML = `
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center space-x-2.5 text-xs text-slate-600 dark:text-slate-400">
+          <i data-lucide="info" class="w-4 h-4 text-slate-500 flex-shrink-0"></i>
+          <span>Vulnerabilidade com status "${this.escapeHtml(v.treatment_status || '')}". Apenas vulnerabilidades com status "Open" são elegíveis para criação de plano de ação.</span>
+        </div>
+      `;
+      this.refreshIcons();
     } else {
       cardEl.innerHTML = `
         <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -4805,12 +4846,14 @@ const App = {
     const btnKanban = document.getElementById('btn-action-view-kanban');
     const containerList = document.getElementById('action-plans-list-container');
     const containerKanban = document.getElementById('action-plans-kanban-container');
+    const pagination = document.getElementById('action-plans-pagination');
 
     if (viewMode === 'kanban') {
       if (btnKanban) btnKanban.className = 'px-3 py-1.5 rounded-lg font-semibold flex items-center space-x-1.5 transition cursor-pointer bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-xs';
       if (btnList) btnList.className = 'px-3 py-1.5 rounded-lg font-medium flex items-center space-x-1.5 transition cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white';
       if (containerList) containerList.classList.add('hidden');
       if (containerKanban) containerKanban.classList.remove('hidden');
+      if (pagination) pagination.classList.add('hidden');
       this.renderActionPlansKanban();
     } else {
       if (btnList) btnList.className = 'px-3 py-1.5 rounded-lg font-semibold flex items-center space-x-1.5 transition cursor-pointer bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-xs';
@@ -4823,10 +4866,12 @@ const App = {
   },
 
   applyActionPlansFilters() {
+    this.state.actionPlansPage = 1;
     this.loadActionPlansData();
   },
 
   handleActionGroupFilterChange(groupId) {
+    this.state.actionPlansPage = 1;
     this.state.selectedAssetGroupId = groupId || '';
     const globalFilter = document.getElementById('global-asset-group-filter');
     if (globalFilter) globalFilter.value = groupId || '';
@@ -4836,6 +4881,7 @@ const App = {
   },
 
   clearActionPlansFilters() {
+    this.state.actionPlansPage = 1;
     const search = document.getElementById('action-filter-search');
     if (search) search.value = '';
     const group = document.getElementById('action-filter-asset-group');
@@ -4919,18 +4965,35 @@ const App = {
   renderActionPlansList() {
     const tbody = document.getElementById('action-plans-table-body');
     const emptyState = document.getElementById('action-plans-empty-state');
+    const paginationEl = document.getElementById('action-plans-pagination');
     if (!tbody) return;
 
     const plans = this.state.actionPlansList || [];
-    if (plans.length === 0) {
+    const total = plans.length;
+
+    if (total === 0) {
       tbody.innerHTML = '';
       if (emptyState) emptyState.classList.remove('hidden');
+      if (paginationEl) paginationEl.classList.add('hidden');
       return;
     }
 
     if (emptyState) emptyState.classList.add('hidden');
 
-    tbody.innerHTML = plans.map(p => {
+    const pageSize = parseInt(this.state.actionPlansPageSize, 10) || 10;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (this.state.actionPlansPage > totalPages) {
+      this.state.actionPlansPage = totalPages;
+    }
+    if (this.state.actionPlansPage < 1) {
+      this.state.actionPlansPage = 1;
+    }
+    const page = this.state.actionPlansPage;
+    const startIdx = (page - 1) * pageSize;
+    const endIdx = Math.min(startIdx + pageSize, total);
+    const pagedPlans = plans.slice(startIdx, endIdx);
+
+    tbody.innerHTML = pagedPlans.map(p => {
       let targetInfo = '';
       if (p.scope_type === 'HOST') {
         targetInfo = p.target_host_ip ? `${p.target_host_ip}${p.target_host_name ? ` (${p.target_host_name})` : ''}` : 'Host não especificado';
@@ -5015,7 +5078,96 @@ const App = {
       `;
     }).join('');
 
+    this.renderActionPlansPagination(total, page, pageSize, totalPages, total === 0 ? 0 : startIdx + 1, endIdx);
     this.refreshIcons();
+  },
+
+  renderActionPlansPagination(total, page, pageSize, totalPages, startDisplay, endDisplay) {
+    const paginationEl = document.getElementById('action-plans-pagination');
+    if (!paginationEl) return;
+
+    if (this.state.actionPlansView === 'kanban' || total === 0) {
+      paginationEl.classList.add('hidden');
+      return;
+    }
+    paginationEl.classList.remove('hidden');
+
+    const sizeSelect = document.getElementById('action-plans-page-size');
+    if (sizeSelect) sizeSelect.value = String(pageSize);
+
+    const infoEl = document.getElementById('action-plans-page-info');
+    if (infoEl) {
+      infoEl.textContent = `Página ${page} de ${totalPages} (Mostrando ${startDisplay}-${endDisplay} de ${total} ${total === 1 ? 'plano' : 'planos'})`;
+    }
+
+    const prevBtn = document.getElementById('action-plans-prev-btn');
+    if (prevBtn) {
+      prevBtn.disabled = page <= 1;
+    }
+
+    const nextBtn = document.getElementById('action-plans-next-btn');
+    if (nextBtn) {
+      nextBtn.disabled = page >= totalPages;
+    }
+
+    const pillsContainer = document.getElementById('action-plans-page-pills');
+    if (pillsContainer) {
+      let pillsHtml = '';
+      if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) {
+          pillsHtml += this.getActionPlanPagePillHtml(i, i === page);
+        }
+      } else {
+        const pages = [];
+        pages.push(1);
+        let left = Math.max(2, page - 1);
+        let right = Math.min(totalPages - 1, page + 1);
+
+        if (left > 2) pages.push('...');
+        for (let i = left; i <= right; i++) {
+          pages.push(i);
+        }
+        if (right < totalPages - 1) pages.push('...');
+        pages.push(totalPages);
+
+        pages.forEach(p => {
+          if (p === '...') {
+            pillsHtml += `<span class="px-2 py-1 text-slate-400 text-xs select-none">...</span>`;
+          } else {
+            pillsHtml += this.getActionPlanPagePillHtml(p, p === page);
+          }
+        });
+      }
+      pillsContainer.innerHTML = pillsHtml;
+    }
+  },
+
+  getActionPlanPagePillHtml(pageNum, isActive) {
+    if (isActive) {
+      return `<button type="button" class="w-7 h-7 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-xs select-none cursor-default">${pageNum}</button>`;
+    }
+    return `<button type="button" onclick="App.setActionPlansPage(${pageNum})" class="w-7 h-7 rounded-lg text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition select-none cursor-pointer">${pageNum}</button>`;
+  },
+
+  setActionPlansPage(page) {
+    const plans = this.state.actionPlansList || [];
+    const pageSize = parseInt(this.state.actionPlansPageSize, 10) || 10;
+    const totalPages = Math.max(1, Math.ceil(plans.length / pageSize));
+    let targetPage = page;
+    if (targetPage < 1) targetPage = 1;
+    if (targetPage > totalPages) targetPage = totalPages;
+    this.state.actionPlansPage = targetPage;
+    this.renderActionPlansList();
+    const tableContainer = document.getElementById('action-plans-list-container');
+    if (tableContainer) {
+      tableContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  },
+
+  handleActionPlansPageSizeChange(val) {
+    this.state.actionPlansPageSize = parseInt(val, 10) || 10;
+    this.state.actionPlansPage = 1;
+    this.renderActionPlansList();
   },
 
   renderActionPlansKanban() {
@@ -5115,6 +5267,167 @@ const App = {
     this.refreshIcons();
   },
 
+  // ============================================================
+  // ACTION PLAN OWNER COMBOBOX (SEARCH & DROPDOWN)
+  // ============================================================
+  initPlanOwnerDropdown(defaultUserId = null) {
+    const assignees = this.state.actionPlansAssignees || [];
+    let selectedId = defaultUserId;
+    const currentUserId = this.state.user?.id;
+
+    if (!selectedId && currentUserId && assignees.some(u => String(u.id) === String(currentUserId))) {
+      selectedId = currentUserId;
+    } else if (!selectedId && assignees.length > 0) {
+      selectedId = assignees[0].id;
+    }
+
+    if (selectedId != null) {
+      this.selectPlanOwner(selectedId, false);
+    }
+  },
+
+  renderPlanOwnerDropdownItems(users, selectedId) {
+    const dropdown = document.getElementById('plan-form-owner-dropdown');
+    if (!dropdown) return;
+
+    if (!users || users.length === 0) {
+      dropdown.innerHTML = `
+        <div class="px-3 py-3 text-center text-slate-400 text-xs">
+          Nenhum responsável encontrado para a busca
+        </div>
+      `;
+      return;
+    }
+
+    dropdown.innerHTML = users.map(u => {
+      const isSelected = String(u.id) === String(selectedId);
+      const name = this.escapeHtml(u.full_name || u.username);
+      const uname = this.escapeHtml(u.username);
+      const role = this.escapeHtml(u.role || 'Usuário');
+      const initial = (u.full_name || u.username || 'U').charAt(0).toUpperCase();
+
+      return `
+        <div 
+          onclick="App.selectPlanOwner(${u.id})"
+          class="flex items-center justify-between px-3 py-2 cursor-pointer transition select-none ${
+            isSelected
+              ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200'
+          }"
+        >
+          <div class="flex items-center space-x-2.5 min-w-0">
+            <div class="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-[10px] font-bold shrink-0">
+              ${initial}
+            </div>
+            <div class="min-w-0">
+              <div class="truncate text-xs">${name}</div>
+              <div class="text-[10px] text-slate-400">@${uname} • <span class="capitalize">${role}</span></div>
+            </div>
+          </div>
+          ${isSelected ? '<i data-lucide="check" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0"></i>' : ''}
+        </div>
+      `;
+    }).join('');
+
+    this.refreshIcons();
+  },
+
+  openPlanOwnerDropdown() {
+    const dropdown = document.getElementById('plan-form-owner-dropdown');
+    const chevron = document.getElementById('plan-form-owner-chevron');
+    if (!dropdown) return;
+    dropdown.classList.remove('hidden');
+    if (chevron) chevron.classList.add('rotate-180');
+
+    const searchInput = document.getElementById('plan-form-owner-search');
+    const currentQuery = searchInput?.value?.trim() || '';
+    const selectedId = document.getElementById('plan-form-owner')?.value;
+    
+    const selectedUser = (this.state.actionPlansAssignees || []).find(u => String(u.id) === String(selectedId));
+    const selectedLabel = selectedUser ? `${selectedUser.full_name || selectedUser.username} (@${selectedUser.username})` : '';
+
+    if (currentQuery === selectedLabel || !currentQuery) {
+      this.renderPlanOwnerDropdownItems(this.state.actionPlansAssignees || [], selectedId);
+    } else {
+      this.filterPlanOwnerOptions(currentQuery);
+    }
+  },
+
+  closePlanOwnerDropdown() {
+    const dropdown = document.getElementById('plan-form-owner-dropdown');
+    const chevron = document.getElementById('plan-form-owner-chevron');
+    if (!dropdown) return;
+    dropdown.classList.add('hidden');
+    if (chevron) chevron.classList.remove('rotate-180');
+
+    const selectedId = document.getElementById('plan-form-owner')?.value;
+    const selectedUser = (this.state.actionPlansAssignees || []).find(u => String(u.id) === String(selectedId)) ||
+                         (this.state.user && String(this.state.user.id) === String(selectedId) ? this.state.user : null);
+    const searchInput = document.getElementById('plan-form-owner-search');
+    if (searchInput && selectedUser) {
+      searchInput.value = `${selectedUser.full_name || selectedUser.username} (@${selectedUser.username})`;
+    }
+  },
+
+  togglePlanOwnerDropdown(e) {
+    if (e) e.stopPropagation();
+    const dropdown = document.getElementById('plan-form-owner-dropdown');
+    if (dropdown && !dropdown.classList.contains('hidden')) {
+      this.closePlanOwnerDropdown();
+    } else {
+      this.openPlanOwnerDropdown();
+      document.getElementById('plan-form-owner-search')?.focus();
+    }
+  },
+
+  filterPlanOwnerOptions(query) {
+    const dropdown = document.getElementById('plan-form-owner-dropdown');
+    const chevron = document.getElementById('plan-form-owner-chevron');
+    if (dropdown && dropdown.classList.contains('hidden')) {
+      dropdown.classList.remove('hidden');
+      if (chevron) chevron.classList.add('rotate-180');
+    }
+
+    const q = (query || '').toLowerCase().trim();
+    const assignees = this.state.actionPlansAssignees || [];
+    const selectedId = document.getElementById('plan-form-owner')?.value;
+
+    if (!q) {
+      this.renderPlanOwnerDropdownItems(assignees, selectedId);
+      return;
+    }
+
+    const filtered = assignees.filter(u => {
+      const fullName = (u.full_name || '').toLowerCase();
+      const uname = (u.username || '').toLowerCase();
+      const role = (u.role || '').toLowerCase();
+      return fullName.includes(q) || uname.includes(q) || role.includes(q) || `@${uname}`.includes(q);
+    });
+
+    this.renderPlanOwnerDropdownItems(filtered, selectedId);
+  },
+
+  selectPlanOwner(userId, shouldClose = true) {
+    const select = document.getElementById('plan-form-owner');
+    if (select) {
+      select.value = String(userId);
+    }
+    const user = (this.state.actionPlansAssignees || []).find(u => String(u.id) === String(userId)) ||
+                 (this.state.user && String(this.state.user.id) === String(userId) ? this.state.user : null);
+
+    const searchInput = document.getElementById('plan-form-owner-search');
+    if (searchInput && user) {
+      searchInput.value = `${user.full_name || user.username} (@${user.username})`;
+    }
+
+    if (shouldClose) {
+      const dropdown = document.getElementById('plan-form-owner-dropdown');
+      const chevron = document.getElementById('plan-form-owner-chevron');
+      if (dropdown) dropdown.classList.add('hidden');
+      if (chevron) chevron.classList.remove('rotate-180');
+    }
+  },
+
   async populateActionPlanFormSelectors() {
     // 1. Assignees
     try {
@@ -5137,6 +5450,8 @@ const App = {
 
       if (ownerSelect) ownerSelect.innerHTML = optionsHtml;
       if (taskAssigneeSelect) taskAssigneeSelect.innerHTML = `<option value="">Mesmo responsável do Plano</option>` + optionsHtml;
+
+      this.initPlanOwnerDropdown(currentUserId);
     } catch (e) {
       console.error('Erro ao carregar lista de responsáveis:', e);
       const ownerSelect = document.getElementById('plan-form-owner');
@@ -5145,6 +5460,7 @@ const App = {
         const uname = this.state.user?.username || 'Admin';
         ownerSelect.innerHTML = `<option value="${uid}" selected>${this.escapeHtml(uname)}</option>`;
       }
+      this.initPlanOwnerDropdown(this.state.user?.id || 1);
     }
 
     // 2. Asset Groups (hierárquico multinível - sem opção global)
@@ -5238,8 +5554,13 @@ const App = {
   async handlePlanFormAssetGroupChange() {
     this.state.planWizardSelectedHosts = [];
     this.state.planWizardSelectedPlugins = [];
+    this.state.planWizardHostOsFilter = '';
+    const osSelect = document.getElementById('plan-wizard-host-os-filter');
+    if (osSelect) osSelect.value = '';
     this.renderWizardSelectedHosts();
     this.renderWizardSelectedPlugins();
+    const groupId = document.getElementById('plan-form-asset-group')?.value || '';
+    await this.loadWizardOsOptions(groupId);
     if (this.state.planWizardStep === 2) {
       this.loadWizardCandidateHosts();
     } else if (this.state.planWizardStep === 3) {
@@ -5285,6 +5606,8 @@ const App = {
     this.updatePlanWizardTabs(step);
 
     if (step === 2) {
+      const groupId = document.getElementById('plan-form-asset-group')?.value || '';
+      this.loadWizardOsOptions(groupId);
       this.loadWizardCandidateHosts(document.getElementById('plan-wizard-host-search')?.value || '');
       this.renderWizardSelectedHosts();
     } else if (step === 3) {
@@ -5315,6 +5638,36 @@ const App = {
   },
 
   // --- HOST SELECTION (ETAPA 2) ---
+  async loadWizardOsOptions(groupId) {
+    const osSelect = document.getElementById('plan-wizard-host-os-filter');
+    if (!osSelect) return;
+
+    try {
+      const osList = await API.getWizardOsList(groupId || '');
+      const currentSelected = this.state.planWizardHostOsFilter || '';
+
+      let html = '<option value="">SO: Todos os Sistemas</option>';
+      (osList || []).forEach(os => {
+        const sel = (os === currentSelected) ? 'selected' : '';
+        html += `<option value="${this.escapeHtml(os)}" ${sel}>${this.escapeHtml(os)}</option>`;
+      });
+      osSelect.innerHTML = html;
+      if (!osList.includes(currentSelected)) {
+        this.state.planWizardHostOsFilter = '';
+        osSelect.value = '';
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar lista de SOs do wizard:', e);
+      osSelect.innerHTML = '<option value="">SO: Todos os Sistemas</option>';
+    }
+  },
+
+  handleWizardHostOsChange(val) {
+    this.state.planWizardHostOsFilter = val || '';
+    const searchVal = document.getElementById('plan-wizard-host-search')?.value || '';
+    this.loadWizardCandidateHosts(searchVal);
+  },
+
   wizardHostSearchTimeout: null,
   handleWizardHostSearch(val) {
     clearTimeout(this.wizardHostSearchTimeout);
@@ -5332,7 +5685,9 @@ const App = {
 
     try {
       const groupId = document.getElementById('plan-form-asset-group')?.value || '';
-      const hosts = await API.getWizardHosts(groupId, search);
+      const planId = document.getElementById('action-plan-id')?.value || '';
+      const osFilter = this.state.planWizardHostOsFilter || '';
+      const hosts = await API.getWizardHosts(groupId, search, planId, osFilter);
       this.state.planWizardCandidateHosts = hosts || [];
       this.renderWizardCandidateHosts();
     } catch (err) {
@@ -5366,8 +5721,9 @@ const App = {
                 <span>${ipEscaped}</span>
                 ${h.hostname ? `<span class="text-slate-400 font-normal truncate">(${this.escapeHtml(h.hostname)})</span>` : ''}
               </div>
-              <div class="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+              <div class="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 flex-wrap">
                 <span>${this.escapeHtml(h.asset_group_name || 'Global')}</span>
+                ${h.os ? `<span class="px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[140px]" title="SO: ${this.escapeHtml(h.os)}"><i data-lucide="cpu" class="w-2.5 h-2.5 inline mr-0.5"></i>${this.escapeHtml(h.os)}</span>` : ''}
                 <span>•</span>
                 <span class="font-semibold text-indigo-600 dark:text-indigo-400">${h.vuln_count} vulns</span>
                 ${h.critical_count > 0 ? `<span class="badge-critical px-1 rounded font-bold">${h.critical_count} Críticas</span>` : ''}
@@ -5580,8 +5936,9 @@ const App = {
       const groupId = document.getElementById('plan-form-asset-group')?.value || '';
       const hosts = this.state.planWizardSelectedHosts || [];
       const hostIps = hosts.map(h => h.ip).join(',');
+      const planId = document.getElementById('action-plan-id')?.value || '';
 
-      const vulns = await API.getWizardVulnerabilities(groupId, hostIps, search);
+      const vulns = await API.getWizardVulnerabilities(groupId, hostIps, search, planId);
       this.state.planWizardCandidatePlugins = vulns || [];
       this.renderWizardCandidateVulns();
     } catch (err) {
@@ -5766,13 +6123,15 @@ const App = {
     }
 
     try {
+      const planId = document.getElementById('action-plan-id')?.value || '';
       const res = await API.previewActionPlanImpact({
         scope_type: scopeType,
         asset_group_id: groupId ? parseInt(groupId, 10) : null,
         target_host_ip: targetHostIp,
         target_plugin_id: targetPluginId,
         scope_host_ips: scopeHostIps,
-        scope_plugin_ids: scopePluginIds
+        scope_plugin_ids: scopePluginIds,
+        plan_id: planId ? parseInt(planId, 10) : null
       });
 
       if (!res.is_relational_valid) {
@@ -5798,6 +6157,10 @@ const App = {
       badgeEl.textContent = '✓ Relacional Válido (ISO 27001)';
 
       const sev = res.severity_distribution || {};
+      const isHostScope = (scopeType === 'HOST') || (scopeType === 'MATRIX_NN' && (!scopePluginIds || scopePluginIds.length === 0));
+      const estTasksCount = isHostScope ? res.unique_hosts_count : res.total_vulnerabilities;
+      const tasksScopeLabel = isHostScope ? `${estTasksCount} tarefa(s) (1 por Host)` : `${estTasksCount} tarefa(s) (HOST+VULN)`;
+
       detailsEl.innerHTML = `
         <div class="space-y-1.5">
           <div class="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
@@ -5810,6 +6173,10 @@ const App = {
             <span class="badge-medium px-1.5 py-0.5 rounded font-bold">${sev.Medium || 0} Médias</span>
             <span class="badge-low px-1.5 py-0.5 rounded font-bold">${sev.Low || 0} Baixas</span>
             <span class="text-slate-500 dark:text-slate-400 ml-auto font-mono">${res.unique_hosts_count} host(s) • ${res.unique_plugins_count} plugin(s)</span>
+          </div>
+          <div class="flex items-center gap-1.5 pt-1 text-[11px]">
+            <span class="font-semibold text-slate-700 dark:text-slate-300">Tarefas que serão criadas:</span>
+            <span class="px-2 py-0.5 rounded font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">${tasksScopeLabel}</span>
           </div>
           ${res.already_in_plan_count > 0 ? `
             <div class="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 pt-0.5">
@@ -5841,6 +6208,12 @@ const App = {
     this.state.planWizardSelectedHosts = [];
     this.state.planWizardSelectedPlugins = [];
     this.state.planWizardVulnMode = 'ALL';
+    this.state.planWizardHostOsFilter = '';
+
+    const osSelect = document.getElementById('plan-wizard-host-os-filter');
+    if (osSelect) osSelect.value = '';
+    const hostSearch = document.getElementById('plan-wizard-host-search');
+    if (hostSearch) hostSearch.value = '';
 
     try {
       document.getElementById('action-plan-modal-title').innerHTML = `
@@ -5854,6 +6227,12 @@ const App = {
       document.getElementById('plan-form-status').value = prefill.status || 'PLANNED';
       document.getElementById('plan-form-due-date').value = prefill.due_date ? prefill.due_date.substring(0, 10) : '';
       document.getElementById('plan-form-autolink').checked = true;
+
+      if (prefill.owner_user_id) {
+        this.selectPlanOwner(prefill.owner_user_id);
+      } else {
+        this.initPlanOwnerDropdown(this.state.user?.id);
+      }
 
       document.getElementById('plan-form-tags').value = Array.isArray(prefill.tags) ? prefill.tags.join(', ') : (prefill.tags || '');
 
@@ -5930,6 +6309,16 @@ const App = {
 
   async openCreatePlanModalFromVuln() {
     const v = this.state.currentVulnModalData;
+    const tStatus = (v?.treatment_status || '').toLowerCase();
+    if (tStatus === 'remediated') {
+      alert('Esta vulnerabilidade já está remediada e não requer plano de ação.');
+      return;
+    }
+    if (tStatus && tStatus !== 'open') {
+      alert(`Vulnerabilidade com status "${v?.treatment_status || ''}". Apenas vulnerabilidades com status "Open" são elegíveis para a criação de um plano de ação.`);
+      return;
+    }
+
     const pluginId = v?.plugin_id || '';
     const title = v?.plugin_name || document.getElementById('modal-vuln-title')?.textContent?.trim() || 'Vulnerabilidade';
     
@@ -5997,8 +6386,17 @@ const App = {
       document.getElementById('plan-form-status').value = p.status || 'PLANNED';
       if (p.owner_user_id) {
         document.getElementById('plan-form-owner').value = String(p.owner_user_id);
+        this.selectPlanOwner(p.owner_user_id);
+      } else {
+        this.initPlanOwnerDropdown();
       }
       document.getElementById('plan-form-due-date').value = p.due_date ? p.due_date.substring(0, 10) : '';
+
+      this.state.planWizardHostOsFilter = '';
+      const osSelect = document.getElementById('plan-wizard-host-os-filter');
+      if (osSelect) osSelect.value = '';
+      const hostSearch = document.getElementById('plan-wizard-host-search');
+      if (hostSearch) hostSearch.value = '';
 
       // Populate wizard hosts
       this.state.planWizardSelectedHosts = [];
@@ -6060,6 +6458,7 @@ const App = {
   },
 
   closeActionPlanModal() {
+    this.closePlanOwnerDropdown();
     const modal = document.getElementById('action-plan-modal');
     if (modal) modal.classList.add('hidden');
   },
@@ -6285,8 +6684,9 @@ const App = {
                   <span class="w-5 h-5 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[10px] font-bold">
                     ${idx + 1}
                   </span>
-                  <h5 class="font-bold text-xs text-slate-900 dark:text-slate-100 ${isDone ? 'line-through text-slate-500' : ''}">
-                    ${this.escapeHtml(t.title)}
+                  <h5 class="font-bold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5 ${isDone ? 'line-through text-slate-500' : ''}">
+                    <i data-lucide="server" class="w-3.5 h-3.5 text-indigo-500 shrink-0"></i>
+                    <span>${this.escapeHtml(t.title)}</span>
                   </h5>
                 </div>
                 <div class="flex items-center space-x-1.5">
@@ -6307,7 +6707,33 @@ const App = {
                 </div>
               </div>
 
-              ${t.description ? `<p class="text-[11px] text-slate-600 dark:text-slate-400 whitespace-pre-line">${this.escapeHtml(t.description)}</p>` : ''}
+              ${t.description ? `
+                <div class="p-2 rounded-lg bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/50 space-y-1">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500">Vulnerabilidade(s) Alvo:</div>
+                  <p class="text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-line font-medium leading-relaxed">${this.escapeHtml(t.description)}</p>
+                </div>
+              ` : ''}
+
+              ${t.vulnerability_links && t.vulnerability_links.length > 0 ? `
+                <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  ${t.vulnerability_links.slice(0, 4).map(vl => {
+                    const sevClass = (vl.severity || '').toLowerCase() === 'critical' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30' :
+                                     (vl.severity || '').toLowerCase() === 'high' ? 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30' :
+                                     (vl.severity || '').toLowerCase() === 'medium' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' :
+                                     'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
+                    return `
+                      <button type="button" onclick="App.openVulnDetailsModal(${vl.vulnerability_id})" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-white dark:bg-slate-800 border ${sevClass} hover:ring-1 hover:ring-indigo-400 transition cursor-pointer" title="Clique para ver os detalhes da vulnerabilidade #${vl.plugin_id}">
+                        <span class="font-bold">#${vl.plugin_id}</span>
+                        ${vl.severity ? `<span class="font-semibold text-[9px] uppercase">${vl.severity}</span>` : ''}
+                        <i data-lucide="external-link" class="w-2.5 h-2.5 opacity-60"></i>
+                      </button>
+                    `;
+                  }).join('')}
+                  ${t.vulnerability_links.length > 4 ? `
+                    <span class="text-[10px] text-slate-400 font-semibold">+${t.vulnerability_links.length - 4} mais</span>
+                  ` : ''}
+                </div>
+              ` : ''}
 
               <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60 text-[11px] text-slate-500 dark:text-slate-400">
                 <div class="flex items-center space-x-3">
@@ -6323,7 +6749,7 @@ const App = {
                 ${t.vulnerabilities_count > 0 ? `
                   <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10px] font-semibold">
                     <i data-lucide="shield" class="w-3 h-3"></i>
-                    <span>${t.vulnerabilities_count} vulnerabilidades vinculadas</span>
+                    <span>${t.vulnerabilities_count} vulnerabilidade(s) vinculada(s)</span>
                   </span>
                 ` : ''}
               </div>

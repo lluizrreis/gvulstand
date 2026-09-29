@@ -416,19 +416,29 @@ const API = {
     return this.request('/action-plans/assignees');
   },
 
-  async getWizardHosts(assetGroupId = '', search = '') {
+  async getWizardOsList(assetGroupId = '') {
+    const query = new URLSearchParams();
+    if (assetGroupId) query.append('asset_group_id', assetGroupId);
+    const qs = query.toString();
+    return this.request(`/action-plans/wizard/os-list${qs ? '?' + qs : ''}`);
+  },
+
+  async getWizardHosts(assetGroupId = '', search = '', planId = '', os = '') {
     const query = new URLSearchParams();
     if (assetGroupId) query.append('asset_group_id', assetGroupId);
     if (search) query.append('search', search);
+    if (planId) query.append('plan_id', planId);
+    if (os) query.append('os', os);
     const qs = query.toString();
     return this.request(`/action-plans/wizard/hosts${qs ? '?' + qs : ''}`);
   },
 
-  async getWizardVulnerabilities(assetGroupId = '', hostIps = '', search = '') {
+  async getWizardVulnerabilities(assetGroupId = '', hostIps = '', search = '', planId = '') {
     const query = new URLSearchParams();
     if (assetGroupId) query.append('asset_group_id', assetGroupId);
     if (hostIps) query.append('host_ips', hostIps);
     if (search) query.append('search', search);
+    if (planId) query.append('plan_id', planId);
     const qs = query.toString();
     return this.request(`/action-plans/wizard/vulnerabilities${qs ? '?' + qs : ''}`);
   },

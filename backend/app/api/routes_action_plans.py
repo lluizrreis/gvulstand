@@ -173,6 +173,10 @@ def link_vulns_to_task_with_precedence(
 
     vulns = db.query(models.Vulnerability).filter(models.Vulnerability.id.in_(vuln_ids)).all()
     for v in vulns:
+        # Vulnerabilidades Remediadas ou com Risco Aceito não são elegíveis para associação a planos de ação
+        if v.treatment_status in ["Remediated", "remediated", "Accepted_Risk", "accepted_risk"]:
+            continue
+
         # Verificar vínculos existentes em planos ativos diferentes
         existing_links = db.query(models.ActionTaskVulnerabilityLink).join(
             models.ActionTask, models.ActionTaskVulnerabilityLink.action_task_id == models.ActionTask.id
@@ -273,6 +277,513 @@ def revert_orphaned_vulns_to_open(
                 changed_at=now
             )
             db.add(hist)
+
+
+def format_host_task_title(host: Optional[models.Host], fallback_ip: Optional[str] = None) -> str:
+    """
+    Formata o nome da tarefa baseado em host: hostname/ip.
+    Se possuir hostname e IP distintos: "hostname (ip)" ou "hostname" se não tiver IP.
+    Se não possuir hostname: "ip".
+    """
+    ip = (host.ip_address if host else fallback_ip or "").strip()
+    hostname = (host.hostname if host else "").strip() if host and host.hostname else ""
+    if hostname and ip and hostname.lower() != ip.lower():
+        return f"{hostname} ({ip})"
+    return hostname or ip or "Host"
+
+
+def generate_action_plan_tasks(
+    db: Session,
+    plan: models.ActionPlan,
+    matching_vulns: List[models.Vulnerability],
+    current_username: str,
+    scope_plugin_ids_explicit: bool = False
+) -> List[models.ActionTask]:
+    """
+    Cria automaticamente as tarefas estruturadas do Plano de Ação:
+    - Escopo baseado em Host (HOST ou MATRIX_NN sem lista específica de plugins):
+      Cria UMA tarefa para cada host contendo as vulnerabilidades daquele host.
+      Nome da tarefa: hostname/ip
+      Abaixo (descrição): nome da(s) vulnerabilidade(s).
+    - Escopo MATRIX_NN (com plugins específicos) ou VULNERABILITY:
+      Cria UMA tarefa para cada grupo (HOST + VULNERABILIDADE).
+      Nome da tarefa: hostname/ip
+      Abaixo (descrição): nome da vulnerabilidade (plugin_name).
+    """
+    if not matching_vulns:
+        return []
+
+    is_host_scope = plan.scope_type in ["HOST", "MATRIX_NN"]
+    created_tasks = []
+
+    # Determinar se o plano é estritamente baseado em Host:
+    # 1. scope_type == "HOST"
+    # 2. scope_type == "MATRIX_NN" mas não foram informados plugins específicos (todas as vulnerabilidades dos hosts)
+    is_host_based = (plan.scope_type == "HOST") or (plan.scope_type == "MATRIX_NN" and not scope_plugin_ids_explicit)
+
+    if is_host_based:
+        # Agrupar vulnerabilidades por IP de host mantendo a ordem dos hosts
+        host_groups: Dict[str, List[models.Vulnerability]] = {}
+        host_order = []
+        for v in matching_vulns:
+            hip = (v.host.ip_address if v.host else str(v.host_id)).strip()
+            if hip not in host_groups:
+                host_groups[hip] = []
+                host_order.append(hip)
+            host_groups[hip].append(v)
+
+        for idx, hip in enumerate(host_order):
+            vulns = host_groups[hip]
+            host = vulns[0].host
+            task_title = format_host_task_title(host, fallback_ip=hip)
+
+            # Abaixo: o nome da vulnerabilidade (ou lista se múltiplas)
+            unique_names = list(dict.fromkeys(v.plugin_name.strip() for v in vulns if v.plugin_name))
+            if len(unique_names) == 1:
+                task_desc = unique_names[0]
+            elif len(unique_names) <= 15:
+                task_desc = "\n".join(f"• {name}" for name in unique_names)
+            else:
+                first_15 = [f"• {name}" for name in unique_names[:15]]
+                task_desc = "\n".join(first_15) + f"\n• ... e mais {len(unique_names) - 15} vulnerabilidades"
+
+            task = models.ActionTask(
+                action_plan_id=plan.id,
+                title=task_title,
+                description=task_desc,
+                order_index=idx,
+                status="TODO",
+                assigned_user_id=plan.owner_user_id,
+                due_date=plan.due_date
+            )
+            db.add(task)
+            db.flush()
+
+            v_ids = [v.id for v in vulns]
+            link_vulns_to_task_with_precedence(db, task, v_ids, current_username, is_host_scope=True)
+            created_tasks.append(task)
+
+    else:
+        # MATRIX_NN com plugins específicos ou VULNERABILITY (ou GROUP):
+        # Uma tarefa para cada grupo HOST + VULNERABILIDADE
+        pair_groups: Dict[Tuple[str, str], List[models.Vulnerability]] = {}
+        pair_order = []
+        for v in matching_vulns:
+            hip = (v.host.ip_address if v.host else str(v.host_id)).strip()
+            key = (hip, str(v.plugin_id).strip())
+            if key not in pair_groups:
+                pair_groups[key] = []
+                pair_order.append(key)
+            pair_groups[key].append(v)
+
+        for idx, key in enumerate(pair_order):
+            vulns = pair_groups[key]
+            host = vulns[0].host
+            vuln_sample = vulns[0]
+            task_title = format_host_task_title(host, fallback_ip=key[0])
+            task_desc = vuln_sample.plugin_name.strip() if vuln_sample.plugin_name else f"Plugin #{vuln_sample.plugin_id}"
+
+            task = models.ActionTask(
+                action_plan_id=plan.id,
+                title=task_title,
+                description=task_desc,
+                order_index=idx,
+                status="TODO",
+                assigned_user_id=plan.owner_user_id,
+                due_date=plan.due_date
+            )
+            db.add(task)
+            db.flush()
+
+            v_ids = [v.id for v in vulns]
+            link_vulns_to_task_with_precedence(db, task, v_ids, current_username, is_host_scope=is_host_scope)
+            created_tasks.append(task)
+
+    return created_tasks
+
+
+def sync_action_plan_tasks_on_scope_update(
+    db: Session,
+    plan: models.ActionPlan,
+    matching_vulns: List[models.Vulnerability],
+    current_username: str,
+    scope_plugin_ids_explicit: bool = False
+) -> List[models.ActionTask]:
+    """
+    Sincroniza as tarefas do Plano de Ação quando o escopo (hosts ou plugins) é alterado na edição:
+    1. Mantém tarefas existentes que continuam no escopo (preservando status, assignee, etc.).
+    2. Atualiza vínculos de vulnerabilidades das tarefas mantidas (remove itens desmarcados e vincula novos).
+    3. Cria novas tarefas estruturadas para novos hosts ou novos pares (HOST+VULN) adicionados ao escopo.
+    4. Remove tarefas obsoletas que deixaram de fazer parte do escopo, revertendo vulnerabilidades para 'Open' se órfãs.
+    """
+    if not matching_vulns:
+        return plan.tasks or []
+
+    is_host_scope = plan.scope_type in ["HOST", "MATRIX_NN"]
+    is_host_based = (plan.scope_type == "HOST") or (plan.scope_type == "MATRIX_NN" and not scope_plugin_ids_explicit)
+
+    existing_tasks = list(plan.tasks or [])
+
+    if is_host_based:
+        host_groups: Dict[str, List[models.Vulnerability]] = {}
+        host_order: List[str] = []
+        for v in matching_vulns:
+            hip = (v.host.ip_address if v.host else str(v.host_id)).strip()
+            if hip not in host_groups:
+                host_groups[hip] = []
+                host_order.append(hip)
+            host_groups[hip].append(v)
+
+        existing_by_host: Dict[str, models.ActionTask] = {}
+        for t in existing_tasks:
+            task_hip = None
+            for link in (t.vulnerability_links or []):
+                if link.vulnerability and link.vulnerability.host and link.vulnerability.host.ip_address:
+                    task_hip = link.vulnerability.host.ip_address.strip()
+                    break
+            if not task_hip:
+                for hip in host_order:
+                    if hip in t.title:
+                        task_hip = hip
+                        break
+            if task_hip and task_hip not in existing_by_host:
+                existing_by_host[task_hip] = t
+
+        retained_task_ids = set()
+
+        for idx, hip in enumerate(host_order):
+            vulns = host_groups[hip]
+            host = vulns[0].host
+            v_ids = [v.id for v in vulns]
+            desired_v_ids = set(v_ids)
+
+            unique_names = list(dict.fromkeys(v.plugin_name.strip() for v in vulns if v.plugin_name))
+            if len(unique_names) == 1:
+                task_desc = unique_names[0]
+            elif len(unique_names) <= 15:
+                task_desc = "\n".join(f"• {name}" for name in unique_names)
+            else:
+                first_15 = [f"• {name}" for name in unique_names[:15]]
+                task_desc = "\n".join(first_15) + f"\n• ... e mais {len(unique_names) - 15} vulnerabilidades"
+
+            if hip in existing_by_host:
+                task = existing_by_host[hip]
+                task.description = task_desc
+                unlinked_vids = []
+                for link in list(task.vulnerability_links or []):
+                    if link.vulnerability_id not in desired_v_ids:
+                        unlinked_vids.append(link.vulnerability_id)
+                        db.delete(link)
+                if unlinked_vids:
+                    db.flush()
+                    revert_orphaned_vulns_to_open(
+                        db=db,
+                        vuln_ids=unlinked_vids,
+                        current_username=current_username,
+                        reason=f"Desvinculada da etapa '{task.title}' após alteração de escopo do Plano #{plan.id}."
+                    )
+                link_vulns_to_task_with_precedence(db, task, v_ids, current_username, is_host_scope=True)
+                retained_task_ids.add(task.id)
+            else:
+                task_title = format_host_task_title(host, fallback_ip=hip)
+                new_task = models.ActionTask(
+                    action_plan_id=plan.id,
+                    title=task_title,
+                    description=task_desc,
+                    order_index=idx,
+                    status="TODO",
+                    assigned_user_id=plan.owner_user_id,
+                    due_date=plan.due_date
+                )
+                db.add(new_task)
+                db.flush()
+                link_vulns_to_task_with_precedence(db, new_task, v_ids, current_username, is_host_scope=True)
+                retained_task_ids.add(new_task.id)
+
+        for t in existing_tasks:
+            if t.id not in retained_task_ids:
+                old_v_ids = [link.vulnerability_id for link in (t.vulnerability_links or []) if link.vulnerability_id]
+                for link in list(t.vulnerability_links or []):
+                    db.delete(link)
+                db.delete(t)
+                db.flush()
+                if old_v_ids:
+                    revert_orphaned_vulns_to_open(
+                        db=db,
+                        vuln_ids=old_v_ids,
+                        current_username=current_username,
+                        reason=f"Desvinculada do Plano #{plan.id} ({plan.title}) devido à remoção do host '{t.title}' do escopo."
+                    )
+
+    else:
+        pair_groups: Dict[Tuple[str, str], List[models.Vulnerability]] = {}
+        pair_order: List[Tuple[str, str]] = []
+        for v in matching_vulns:
+            hip = (v.host.ip_address if v.host else str(v.host_id)).strip()
+            key = (hip, str(v.plugin_id).strip())
+            if key not in pair_groups:
+                pair_groups[key] = []
+                pair_order.append(key)
+            pair_groups[key].append(v)
+
+        existing_by_pair: Dict[Tuple[str, str], models.ActionTask] = {}
+        for t in existing_tasks:
+            task_key = None
+            for link in (t.vulnerability_links or []):
+                v = link.vulnerability
+                if v and v.host and v.host.ip_address:
+                    task_key = (v.host.ip_address.strip(), str(v.plugin_id).strip())
+                    break
+            if not task_key:
+                for pair in pair_order:
+                    hip, pid = pair
+                    if hip in t.title and (pid in (t.description or "") or any(v.plugin_name == t.description for v in pair_groups[pair])):
+                        task_key = pair
+                        break
+            if task_key and task_key not in existing_by_pair:
+                existing_by_pair[task_key] = t
+
+        retained_task_ids = set()
+
+        for idx, key in enumerate(pair_order):
+            vulns = pair_groups[key]
+            host = vulns[0].host
+            vuln_sample = vulns[0]
+            v_ids = [v.id for v in vulns]
+            desired_v_ids = set(v_ids)
+
+            if key in existing_by_pair:
+                task = existing_by_pair[key]
+                unlinked_vids = []
+                for link in list(task.vulnerability_links or []):
+                    if link.vulnerability_id not in desired_v_ids:
+                        unlinked_vids.append(link.vulnerability_id)
+                        db.delete(link)
+                if unlinked_vids:
+                    db.flush()
+                    revert_orphaned_vulns_to_open(
+                        db=db,
+                        vuln_ids=unlinked_vids,
+                        current_username=current_username,
+                        reason=f"Desvinculada da etapa '{task.title}' após alteração de escopo do Plano #{plan.id}."
+                    )
+                link_vulns_to_task_with_precedence(db, task, v_ids, current_username, is_host_scope=is_host_scope)
+                retained_task_ids.add(task.id)
+            else:
+                task_title = format_host_task_title(host, fallback_ip=key[0])
+                task_desc = vuln_sample.plugin_name.strip() if vuln_sample.plugin_name else f"Plugin #{vuln_sample.plugin_id}"
+                new_task = models.ActionTask(
+                    action_plan_id=plan.id,
+                    title=task_title,
+                    description=task_desc,
+                    order_index=idx,
+                    status="TODO",
+                    assigned_user_id=plan.owner_user_id,
+                    due_date=plan.due_date
+                )
+                db.add(new_task)
+                db.flush()
+                link_vulns_to_task_with_precedence(db, new_task, v_ids, current_username, is_host_scope=is_host_scope)
+                retained_task_ids.add(new_task.id)
+
+        for t in existing_tasks:
+            if t.id not in retained_task_ids:
+                old_v_ids = [link.vulnerability_id for link in (t.vulnerability_links or []) if link.vulnerability_id]
+                for link in list(t.vulnerability_links or []):
+                    db.delete(link)
+                db.delete(t)
+                db.flush()
+                if old_v_ids:
+                    revert_orphaned_vulns_to_open(
+                        db=db,
+                        vuln_ids=old_v_ids,
+                        current_username=current_username,
+                        reason=f"Desvinculada do Plano #{plan.id} ({plan.title}) devido à remoção do par ({t.title}) do escopo."
+                    )
+
+    db.flush()
+    return plan.tasks or []
+
+
+def sync_action_plans_on_scan_import(
+    db: Session,
+    scan: models.Scan,
+    current_username: str
+):
+    """
+    Sincroniza automaticamente Planos de Ação e suas Etapas após a importação de um novo Scan CSV (ISO 27001 / PDCA):
+    1. Recorrência: se o par (Host + Vulnerabilidade) persistir/reaparecer no novo scan, associa
+       a nova vulnerabilidade ao mesmo plano e à mesma etapa, marcando-a como 'In_Action_Plan'.
+    2. Auto-conclusão: caso na importação a vulnerabilidade não apareça para o host escaneado,
+       a respectiva etapa (host+vulnerabilidade) é definida como Concluída ('DONE') e a vulnerabilidade anterior marcada como 'Remediated'.
+    3. Reabertura para 'Em Revisão': se o plano estiver 'PLANNED' ou 'IN_PROGRESS' e o cruzamento
+       host+vulnerabilidade estiver presente no novo scan, e a tarefa estava 'DONE' (Concluída),
+       atualiza a etapa para 'REVIEW' ('Em Revisão') e o status da vulnerabilidade para 'In_Action_Plan'.
+    """
+    now = utc_now()
+    from app.services.asset_group_service import get_descendant_group_ids
+
+    # 1. Identificar hosts presentes neste novo scan
+    scanned_hosts = db.query(models.Host).filter(models.Host.scan_id == scan.id).all()
+    scanned_host_ips = {h.ip_address.strip() for h in scanned_hosts if h.ip_address}
+    if not scanned_host_ips:
+        return
+
+    # 2. Identificar vulnerabilidades não-Info encontradas no novo scan
+    new_vulns = db.query(models.Vulnerability).join(
+        models.Host, models.Vulnerability.host_id == models.Host.id
+    ).filter(
+        models.Vulnerability.scan_id == scan.id,
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+    ).all()
+
+    new_vulns_by_pair: Dict[Tuple[str, str], List[models.Vulnerability]] = {}
+    for nv in new_vulns:
+        if nv.host and nv.host.ip_address:
+            key = (nv.host.ip_address.strip(), str(nv.plugin_id).strip())
+            if key not in new_vulns_by_pair:
+                new_vulns_by_pair[key] = []
+            new_vulns_by_pair[key].append(nv)
+
+    # 3. Buscar planos de ação ativos ou completados elegíveis
+    active_plans = db.query(models.ActionPlan).filter(
+        models.ActionPlan.status.in_(["PLANNED", "IN_PROGRESS", "COMPLETED"])
+    ).all()
+
+    for plan in active_plans:
+        # Verificar abrangência do grupo de ativos
+        if plan.asset_group_id and scan.asset_group_id:
+            plan_gids = get_descendant_group_ids(db, plan.asset_group_id, include_self=True)
+            if scan.asset_group_id not in plan_gids:
+                continue
+
+        tasks = plan.tasks or []
+        if not tasks:
+            continue
+
+        for task in tasks:
+            # Coletar pares (host_ip, plugin_id) monitorados por esta etapa
+            monitored_pairs: Set[Tuple[str, str]] = set()
+            task_host_ips: Set[str] = set()
+
+            for link in (task.vulnerability_links or []):
+                v = link.vulnerability
+                if v and v.host and v.host.ip_address:
+                    monitored_pairs.add((v.host.ip_address.strip(), str(v.plugin_id).strip()))
+                    task_host_ips.add(v.host.ip_address.strip())
+
+            # Se o escopo for baseado puramente em host (HOST ou MATRIX_NN sem lista de plugins),
+            # adicionar quaisquer novas vulnerabilidades dos hosts monitorados pela tarefa
+            is_host_scope_task = (plan.scope_type == "HOST") or (plan.scope_type == "MATRIX_NN" and not (plan.scope_plugins and len(plan.scope_plugins) > 0))
+            if is_host_scope_task and task_host_ips:
+                for nv in new_vulns:
+                    if nv.host and nv.host.ip_address and nv.host.ip_address.strip() in task_host_ips:
+                        monitored_pairs.add((nv.host.ip_address.strip(), str(nv.plugin_id).strip()))
+
+            # Considerar apenas pares cujos hosts participaram do novo scan
+            relevant_pairs = {pair for pair in monitored_pairs if pair[0] in scanned_host_ips}
+            if not relevant_pairs:
+                continue
+
+            present_pairs = {p for p in relevant_pairs if p in new_vulns_by_pair}
+            absent_pairs = {p for p in relevant_pairs if p not in new_vulns_by_pair}
+
+            # A. Tratamento de pares PRESENTES (Recorrência)
+            for pair in present_pairs:
+                host_ip, pid_str = pair
+                for nv in new_vulns_by_pair[pair]:
+                    # Associar nv à tarefa se ainda não associada
+                    already_linked = any(
+                        link.vulnerability_id == nv.id for link in (task.vulnerability_links or [])
+                    ) or db.query(models.ActionTaskVulnerabilityLink).filter(
+                        models.ActionTaskVulnerabilityLink.action_task_id == task.id,
+                        models.ActionTaskVulnerabilityLink.vulnerability_id == nv.id
+                    ).first()
+
+                    if not already_linked:
+                        db.add(models.ActionTaskVulnerabilityLink(
+                            action_task_id=task.id,
+                            vulnerability_id=nv.id
+                        ))
+                        db.flush()
+
+                    if nv.treatment_status != "In_Action_Plan":
+                        nv.treatment_status = "In_Action_Plan"
+                        nv.treated_by_username = current_username
+                        nv.treated_at = now
+                        nv.treatment_notes = f"Recorrência detectada no Scan #{scan.id} e associada ao Plano de Ação #{plan.id} ({plan.title}) - Etapa '{task.title}'."
+                        hist_nv = models.VulnerabilityTreatmentHistory(
+                            vulnerability_id=nv.id,
+                            treatment_status="In_Action_Plan",
+                            treatment_notes=f"Recorrência detectada no Scan #{scan.id} e vinculada à Etapa '{task.title}' do Plano de Ação #{plan.id}.",
+                            changed_by_username=current_username,
+                            changed_at=now
+                        )
+                        db.add(hist_nv)
+
+            # B. Tratamento de pares AUSENTES (Remediados)
+            for pair in absent_pairs:
+                host_ip, pid_str = pair
+                for link in (task.vulnerability_links or []):
+                    old_v = link.vulnerability
+                    if old_v and old_v.host and old_v.host.ip_address.strip() == host_ip and str(old_v.plugin_id).strip() == pid_str:
+                        if old_v.treatment_status not in ["Remediated", "Accepted_Risk"]:
+                            old_v.treatment_status = "Remediated"
+                            old_v.treated_by_username = current_username
+                            old_v.treated_at = now
+                            old_v.treatment_notes = f"Remediada: vulnerabilidade não mais detectada no Host {host_ip} no Scan #{scan.id}."
+                            hist_rem = models.VulnerabilityTreatmentHistory(
+                                vulnerability_id=old_v.id,
+                                treatment_status="Remediated",
+                                treatment_notes=f"Remediada: vulnerabilidade não mais detectada no Host {host_ip} no Scan #{scan.id}.",
+                                changed_by_username=current_username,
+                                changed_at=now
+                            )
+                            db.add(hist_rem)
+
+            # C. Atualização do status da Etapa/Tarefa
+            if len(present_pairs) > 0:
+                # Regra 4: se a tarefa estava como concluída e o plano está em PLANNED ou IN_PROGRESS, atualize para 'Em Revisão'
+                if task.status == "DONE":
+                    task.status = "REVIEW"
+                    task.completed_at = None
+
+                    # Reabrir vulnerabilidades anteriores para In_Action_Plan
+                    for link in (task.vulnerability_links or []):
+                        old_v = link.vulnerability
+                        if old_v and (old_v.host.ip_address.strip(), str(old_v.plugin_id).strip()) in present_pairs:
+                            if old_v.treatment_status != "In_Action_Plan":
+                                old_v.treatment_status = "In_Action_Plan"
+                                old_v.treated_by_username = current_username
+                                old_v.treated_at = now
+                                old_v.treatment_notes = f"Reaberto para 'Em Revisão' devido à reincidência confirmada no Scan #{scan.id}."
+                                hist_reopen = models.VulnerabilityTreatmentHistory(
+                                    vulnerability_id=old_v.id,
+                                    treatment_status="In_Action_Plan",
+                                    treatment_notes=f"Reaberto para 'Em Revisão' devido à reincidência confirmada no Scan #{scan.id}.",
+                                    changed_by_username=current_username,
+                                    changed_at=now
+                                )
+                                db.add(hist_reopen)
+
+            elif len(present_pairs) == 0 and len(absent_pairs) > 0:
+                # Regra 3: todas as vulnerabilidades monitoradas no novo scan não mais existem
+                task.status = "DONE"
+                task.completed_at = now
+
+        # D. Atualização do status do Plano
+        all_tasks = plan.tasks or []
+        if all_tasks:
+            all_done = all(t.status == "DONE" for t in all_tasks)
+            any_active = any(t.status in ["REVIEW", "TODO", "DOING", "IN_PROGRESS"] for t in all_tasks)
+            if all_done and plan.status != "COMPLETED":
+                plan.status = "COMPLETED"
+                plan.updated_at = now
+            elif any_active and plan.status == "COMPLETED":
+                plan.status = "IN_PROGRESS"
+                plan.updated_at = now
+
+    db.commit()
 
 
 def build_action_plan_group_filter(db: Session, current_user: models.User, asset_group_id: Optional[int]):
@@ -565,7 +1076,7 @@ def get_unassigned_vulnerabilities(
         models.Host, models.Vulnerability.host_id == models.Host.id
     ).filter(
         models.Vulnerability.scan_id.in_(active_scan_ids),
-        models.Vulnerability.treatment_status.notin_(["Remediated", "Accepted_Risk"]),
+        models.Vulnerability.treatment_status.in_(["Open", "open"]),
         ~models.Vulnerability.id.in_(assigned_vuln_ids_q),
         ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
     )
@@ -601,26 +1112,75 @@ def get_unassigned_vulnerabilities(
     return [format_vuln_out(v, ignored_ids) for v in vulns]
 
 
-@router.get("/wizard/hosts", response_model=List[schemas.ActionPlanWizardHostOut])
-def get_wizard_hosts(
+@router.get("/wizard/os-list", response_model=List[str])
+def get_wizard_os_list(
     asset_group_id: Optional[int] = None,
-    search: Optional[str] = None,
-    limit: int = 50,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     """
-    Retorna lista de hosts com vulnerabilidades ativas para seleção passo a passo no Wizard de criação.
-    Permite busca por IP ou Hostname e filtragem por Grupo de Ativos.
+    Retorna lista única de sistemas operacionais identificados nos scans mais recentes para o grupo selecionado.
+    """
+    from app.services.scan_service import get_latest_scan_ids
+    latest_scans = get_latest_scan_ids(db, asset_group_id)
+    if not latest_scans:
+        return []
+
+    os_rows = db.query(models.Host.os).filter(
+        models.Host.scan_id.in_(latest_scans),
+        models.Host.os.isnot(None),
+        models.Host.os != ''
+    ).distinct().order_by(models.Host.os.asc()).all()
+
+    return [r[0] for r in os_rows if r[0] and r[0].strip()]
+
+
+@router.get("/wizard/hosts", response_model=List[schemas.ActionPlanWizardHostOut])
+def get_wizard_hosts(
+    asset_group_id: Optional[int] = None,
+    search: Optional[str] = None,
+    os: Optional[str] = None,
+    limit: int = 50,
+    plan_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Retorna lista de hosts com vulnerabilidades ativas da importação mais recente para seleção passo a passo no Wizard de criação.
+    Permite busca por IP ou Hostname e filtragem por Grupo de Ativos e Sistema Operacional.
+    Exclui vulnerabilidades Remediadas: apenas vulnerabilidades com status 'Open' são elegíveis.
     """
     from app.services.asset_group_service import get_descendant_group_ids
+    from app.services.scan_service import get_latest_scan_ids
+
     target_gids = None
     if asset_group_id:
         target_gids = get_descendant_group_ids(db, asset_group_id, include_self=True)
 
+    latest_scans = get_latest_scan_ids(db, asset_group_id)
+    if not latest_scans:
+        return []
+
+    if plan_id:
+        this_plan_vids = [
+            v[0] for v in db.query(models.ActionTaskVulnerabilityLink.vulnerability_id).join(
+                models.ActionTask, models.ActionTaskVulnerabilityLink.action_task_id == models.ActionTask.id
+            ).filter(models.ActionTask.action_plan_id == plan_id).all()
+        ]
+        allowed_status_clause = and_(
+            ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated", "Accepted_Risk"]),
+            or_(
+                models.Vulnerability.treatment_status.in_(["Open", "open"]),
+                models.Vulnerability.id.in_(this_plan_vids)
+            )
+        )
+    else:
+        allowed_status_clause = models.Vulnerability.treatment_status.in_(["Open", "open"])
+
     query = db.query(
         models.Host.ip_address,
         func.max(models.Host.hostname).label('hostname'),
+        func.max(models.Host.os).label('os'),
         func.max(models.Host.id).label('host_id'),
         func.max(models.Host.asset_group_id).label('asset_group_id'),
         func.count(models.Vulnerability.id).label('vuln_count'),
@@ -631,11 +1191,16 @@ def get_wizard_hosts(
     ).join(
         models.Vulnerability, models.Host.id == models.Vulnerability.host_id
     ).filter(
-        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+        models.Vulnerability.scan_id.in_(latest_scans),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+        allowed_status_clause
     )
 
     if target_gids:
         query = query.filter(models.Host.asset_group_id.in_(target_gids))
+
+    if os and os.strip():
+        query = query.filter(models.Host.os.ilike(f"%{os.strip()}%"))
 
     if search and search.strip():
         term = f"%{search.strip()}%"
@@ -659,6 +1224,7 @@ def get_wizard_hosts(
             id=r.host_id,
             ip=r.ip_address,
             hostname=r.hostname or "",
+            os=r.os or "",
             asset_group_id=r.asset_group_id,
             asset_group_name=groups.get(r.asset_group_id, "Global"),
             vuln_count=int(r.vuln_count or 0),
@@ -677,20 +1243,44 @@ def get_wizard_vulnerabilities(
     host_ips: Optional[str] = None,
     search: Optional[str] = None,
     limit: int = 50,
+    plan_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     """
-    Retorna lista de vulnerabilidades (plugins) candidatas para inclusão no Wizard.
-    Se host_ips for informado, lista as vulnerabilidades que afetam aqueles hosts.
-    Se não for informado, lista as vulnerabilidades presentes no Grupo de Ativos.
+    Retorna lista de vulnerabilidades (plugins) candidatas da importação mais recente para inclusão no Wizard.
+    Se host_ips for informado, lista as vulnerabilidades que afetam aqueles hosts no scan mais recente.
+    Se não for informado, lista as vulnerabilidades presentes no Grupo de Ativos no scan mais recente.
+    Exclui vulnerabilidades Remediadas: apenas vulnerabilidades com status 'Open' são elegíveis.
     """
     from app.services.asset_group_service import get_descendant_group_ids
+    from app.services.scan_service import get_latest_scan_ids
+
     target_gids = None
     if asset_group_id:
         target_gids = get_descendant_group_ids(db, asset_group_id, include_self=True)
 
+    latest_scans = get_latest_scan_ids(db, asset_group_id)
+    if not latest_scans:
+        return []
+
     clean_ips = [ip.strip() for ip in (host_ips or "").split(",") if ip.strip()]
+
+    if plan_id:
+        this_plan_vids = [
+            v[0] for v in db.query(models.ActionTaskVulnerabilityLink.vulnerability_id).join(
+                models.ActionTask, models.ActionTaskVulnerabilityLink.action_task_id == models.ActionTask.id
+            ).filter(models.ActionTask.action_plan_id == plan_id).all()
+        ]
+        allowed_status_clause = and_(
+            ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated", "Accepted_Risk"]),
+            or_(
+                models.Vulnerability.treatment_status.in_(["Open", "open"]),
+                models.Vulnerability.id.in_(this_plan_vids)
+            )
+        )
+    else:
+        allowed_status_clause = models.Vulnerability.treatment_status.in_(["Open", "open"])
 
     query = db.query(
         models.Vulnerability.plugin_id,
@@ -701,7 +1291,9 @@ def get_wizard_vulnerabilities(
     ).join(
         models.Host, models.Host.id == models.Vulnerability.host_id
     ).filter(
-        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+        models.Vulnerability.scan_id.in_(latest_scans),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+        allowed_status_clause
     )
 
     if clean_ips:
@@ -752,34 +1344,55 @@ def validate_action_plan_relational_scope(
     target_plugin_id: Optional[str] = None,
     scope_host_ips: Optional[List[str]] = None,
     scope_plugin_ids: Optional[List[str]] = None,
-    strict_raise: bool = True
+    strict_raise: bool = True,
+    plan_id: Optional[int] = None
 ) -> Tuple[bool, List[str], List[str], Optional[str], List[models.Vulnerability]]:
     """
-    Valida rigorosamente a integridade relacional do escopo do Plano de Ação:
+    Valida rigorosamente a integridade relacional do escopo do Plano de Ação utilizando
+    exclusivamente os dados da importação mais recente de cada Grupo de Ativos (ISO 27001):
     1. Escopo HOST:
        - O IP/ID do host deve existir na base de dados.
        - Se especificado asset_group_id, o host deve pertencer ao grupo ou subgrupos hierárquicos.
-       - O host deve possuir no mínimo uma vulnerabilidade ativa (não-Info) vinculada a ele.
+       - O host deve possuir no mínimo uma vulnerabilidade ativa (não-Info) vinculada a ele no scan mais recente.
     2. Escopo VULNERABILITY:
-       - O target_plugin_id deve existir e possuir vulnerabilidades ativas (não-Info) vinculadas.
+       - O target_plugin_id deve existir e possuir vulnerabilidades ativas (não-Info) vinculadas no scan mais recente.
     3. Escopo MATRIX_NN (N hosts para M vulnerabilidades):
        - Todos os IPs da lista de hosts devem existir na base de dados.
        - Se especificado asset_group_id, todos os hosts devem pertencer à hierarquia do grupo.
        - O plano deve ser estritamente relacional:
-         * Nenhum host da lista pode ficar sem pelo menos uma vulnerabilidade dos plugins indicados.
-         * Nenhum plugin da lista pode ficar sem ao menos um host afetado da lista de hosts.
+         * Nenhum host da lista pode ficar sem pelo menos uma vulnerabilidade dos plugins indicados no scan mais recente.
+         * Nenhum plugin da lista pode ficar sem ao menos um host afetado da lista de hosts no scan mais recente.
     4. Escopo GROUP:
-       - O grupo deve possuir vulnerabilidades ativas (Críticas/Altas).
+       - O grupo deve possuir vulnerabilidades ativas (Críticas/Altas) no scan mais recente.
 
     Retorna: (is_valid, unmatched_hosts, unmatched_plugins, validation_message, matching_vulns)
     Se strict_raise=True e is_valid=False, levanta HTTPException(status_code=422).
     """
     from app.services.asset_group_service import get_descendant_group_ids
+    from app.services.scan_service import get_latest_scan_ids
 
     scope = (scope_type or "CUSTOM").upper()
     target_gids = None
     if asset_group_id:
         target_gids = get_descendant_group_ids(db, asset_group_id, include_self=True)
+
+    latest_scan_ids = get_latest_scan_ids(db, asset_group_id)
+
+    if plan_id:
+        this_plan_vids = [
+            v[0] for v in db.query(models.ActionTaskVulnerabilityLink.vulnerability_id).join(
+                models.ActionTask, models.ActionTaskVulnerabilityLink.action_task_id == models.ActionTask.id
+            ).filter(models.ActionTask.action_plan_id == plan_id).all()
+        ]
+        allowed_status_clause = and_(
+            ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated", "Accepted_Risk", "accepted_risk"]),
+            or_(
+                models.Vulnerability.treatment_status.in_(["Open", "open"]),
+                models.Vulnerability.id.in_(this_plan_vids)
+            )
+        )
+    else:
+        allowed_status_clause = ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated", "Accepted_Risk", "accepted_risk"])
 
     if scope == "HOST":
         target_host = None
@@ -789,13 +1402,20 @@ def validate_action_plan_relational_scope(
             target_ip_clean = str(target_host_ip).strip()
             candidate_hosts = db.query(models.Host).filter(models.Host.ip_address == target_ip_clean).order_by(models.Host.id.desc()).all()
             for ch in candidate_hosts:
-                has_act = db.query(models.Vulnerability.id).filter(
-                    models.Vulnerability.host_id == ch.id,
-                    ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
-                ).first()
-                if has_act:
+                if latest_scan_ids and ch.scan_id in latest_scan_ids:
                     target_host = ch
                     break
+            if not target_host:
+                for ch in candidate_hosts:
+                    has_act = db.query(models.Vulnerability.id).filter(
+                        models.Vulnerability.host_id == ch.id,
+                        models.Vulnerability.scan_id.in_(latest_scan_ids) if latest_scan_ids else literal(False),
+                        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+                        allowed_status_clause
+                    ).first()
+                    if has_act:
+                        target_host = ch
+                        break
             if not target_host and candidate_hosts:
                 target_host = candidate_hosts[0]
 
@@ -812,16 +1432,34 @@ def validate_action_plan_relational_scope(
                 raise HTTPException(status_code=422, detail=msg)
             return False, [target_host.ip_address], [], msg, []
 
-        vq = db.query(models.Vulnerability).filter(
-            models.Vulnerability.host_id == target_host.id,
-            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+        if not latest_scan_ids:
+            msg = f"Plano de Ação inválido / não relacional: O host '{target_host.ip_address}' não possui vulnerabilidades ativas na importação mais recente para compor um Plano de Ação."
+            if strict_raise:
+                raise HTTPException(status_code=422, detail=msg)
+            return False, [target_host.ip_address], [], msg, []
+
+        # Atualizar para a instância de Host no scan mais recente se disponível
+        recent_host = db.query(models.Host).filter(
+            models.Host.ip_address == target_host.ip_address,
+            models.Host.scan_id.in_(latest_scan_ids)
+        ).first()
+        if recent_host:
+            target_host = recent_host
+
+        vq = db.query(models.Vulnerability).join(
+            models.Host, models.Vulnerability.host_id == models.Host.id
+        ).filter(
+            models.Host.ip_address == target_host.ip_address,
+            models.Vulnerability.scan_id.in_(latest_scan_ids),
+            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+            allowed_status_clause
         )
         if target_gids:
             vq = vq.filter(models.Vulnerability.asset_group_id.in_(target_gids))
 
         matching_vulns = vq.all()
         if not matching_vulns:
-            msg = f"Plano de Ação inválido / não relacional: O host '{target_host.ip_address}' não possui vulnerabilidades ativas vinculadas para compor um Plano de Ação."
+            msg = f"Plano de Ação inválido / não relacional: O host '{target_host.ip_address}' não possui vulnerabilidades ativas na importação mais recente para compor um Plano de Ação."
             if strict_raise:
                 raise HTTPException(status_code=422, detail=msg)
             return False, [target_host.ip_address], [], msg, []
@@ -836,16 +1474,24 @@ def validate_action_plan_relational_scope(
                 raise HTTPException(status_code=422, detail=msg)
             return False, [], [], msg, []
 
+        if not latest_scan_ids:
+            msg = f"Plano de Ação inválido / não relacional: O Plugin ID '{plugin_id}' não possui vulnerabilidades ativas na importação mais recente no escopo selecionado."
+            if strict_raise:
+                raise HTTPException(status_code=422, detail=msg)
+            return False, [], [plugin_id], msg, []
+
         vq = db.query(models.Vulnerability).filter(
             models.Vulnerability.plugin_id == plugin_id,
-            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+            models.Vulnerability.scan_id.in_(latest_scan_ids),
+            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+            allowed_status_clause
         )
         if target_gids:
             vq = vq.filter(models.Vulnerability.asset_group_id.in_(target_gids))
 
         matching_vulns = vq.all()
         if not matching_vulns:
-            msg = f"Plano de Ação inválido / não relacional: O Plugin ID '{plugin_id}' não possui vulnerabilidades ativas vinculadas no escopo selecionado."
+            msg = f"Plano de Ação inválido / não relacional: O Plugin ID '{plugin_id}' não possui vulnerabilidades ativas na importação mais recente no escopo selecionado."
             if strict_raise:
                 raise HTTPException(status_code=422, detail=msg)
             return False, [], [plugin_id], msg, []
@@ -856,6 +1502,12 @@ def validate_action_plan_relational_scope(
         clean_host_ips = list(dict.fromkeys([str(ip).strip() for ip in (scope_host_ips or []) if str(ip).strip()]))
         clean_plugin_ids = list(dict.fromkeys([str(p).strip() for p in (scope_plugin_ids or []) if str(p).strip()]))
 
+        if not latest_scan_ids:
+            msg = "Plano de Ação inválido / não relacional: Informe ao menos um IP de host no escopo matricial ou selecione plugins com ocorrências ativas na importação mais recente do Grupo de Ativos."
+            if strict_raise:
+                raise HTTPException(status_code=422, detail=msg)
+            return False, clean_host_ips, clean_plugin_ids, msg, []
+
         # Auto-resolução: se hosts não foram informados na Etapa 2, mas plugins foram informados no Grupo de Ativos
         if not clean_host_ips and target_gids and clean_plugin_ids:
             auto_hosts = db.query(models.Host.ip_address).join(
@@ -863,17 +1515,19 @@ def validate_action_plan_relational_scope(
             ).filter(
                 models.Vulnerability.asset_group_id.in_(target_gids),
                 models.Vulnerability.plugin_id.in_(clean_plugin_ids),
-                ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+                models.Vulnerability.scan_id.in_(latest_scan_ids),
+                ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+                allowed_status_clause
             ).distinct().all()
             clean_host_ips = [h[0] for h in auto_hosts]
 
         if not clean_host_ips:
-            msg = "Plano de Ação inválido / não relacional: Informe ao menos um IP de host no escopo matricial ou selecione plugins com ocorrências ativas no Grupo de Ativos."
+            msg = "Plano de Ação inválido / não relacional: Informe ao menos um IP de host no escopo matricial ou selecione plugins com ocorrências ativas na importação mais recente do Grupo de Ativos."
             if strict_raise:
                 raise HTTPException(status_code=422, detail=msg)
             return False, [], [], msg, []
 
-        # 1. Verificar se todos os hosts existem
+        # 1. Verificar se os hosts existem no inventário
         found_hosts = db.query(models.Host).filter(models.Host.ip_address.in_(clean_host_ips)).all()
         found_ips_set = set(h.ip_address for h in found_hosts)
         missing_ips = [ip for ip in clean_host_ips if ip not in found_ips_set]
@@ -885,20 +1539,23 @@ def validate_action_plan_relational_scope(
 
         # 2. Verificar se todos os hosts pertencem ao grupo selecionado (se informado)
         if target_gids:
-            out_of_group = [h.ip_address for h in found_hosts if h.asset_group_id and h.asset_group_id not in target_gids]
+            ips_in_target_group = set(h.ip_address for h in found_hosts if h.asset_group_id in target_gids)
+            out_of_group = [ip for ip in clean_host_ips if ip not in ips_in_target_group]
             if out_of_group:
                 msg = f"Plano de Ação inválido / não relacional: Os seguintes hosts não pertencem ao Grupo de Ativos selecionado ou aos seus subgrupos: {', '.join(sorted(out_of_group))}."
                 if strict_raise:
                     raise HTTPException(status_code=422, detail=msg)
                 return False, out_of_group, [], msg, []
 
-        # Se não foram fornecidos plugins específicos, seleciona todas as vulnerabilidades ativas dos hosts informados
+        # Se não foram fornecidos plugins específicos, seleciona todas as vulnerabilidades ativas dos hosts informados NO SCAN MAIS RECENTE
         if not clean_plugin_ids:
             mq_all = db.query(models.Vulnerability).join(
                 models.Host, models.Vulnerability.host_id == models.Host.id
             ).filter(
                 models.Host.ip_address.in_(clean_host_ips),
-                ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+                models.Vulnerability.scan_id.in_(latest_scan_ids),
+                ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+                allowed_status_clause
             )
             if target_gids:
                 mq_all = mq_all.filter(models.Vulnerability.asset_group_id.in_(target_gids))
@@ -910,21 +1567,23 @@ def validate_action_plan_relational_scope(
             if not matching_vulns or unmatched_hosts:
                 critiques = []
                 if unmatched_hosts:
-                    critiques.append(f"Hosts sem nenhuma vulnerabilidade ativa vinculada: {', '.join(sorted(unmatched_hosts))}")
-                msg = f"Plano de Ação inválido / não relacional: Os hosts selecionados devem possuir ao menos uma vulnerabilidade ativa vinculada. {'; '.join(critiques)}."
+                    critiques.append(f"Hosts sem nenhuma vulnerabilidade ativa na importação mais recente: {', '.join(sorted(unmatched_hosts))}")
+                msg = f"Plano de Ação inválido / não relacional: Os hosts selecionados devem possuir ao menos uma vulnerabilidade ativa na importação mais recente. {'; '.join(critiques)}."
                 if strict_raise:
                     raise HTTPException(status_code=422, detail=msg)
                 return False, unmatched_hosts, [], msg, matching_vulns
 
             return True, [], [], None, matching_vulns
 
-        # 3. Consultar vulnerabilidades no cruzamento N:M
+        # 3. Consultar vulnerabilidades no cruzamento N:M NO SCAN MAIS RECENTE
         mq = db.query(models.Vulnerability).join(
             models.Host, models.Vulnerability.host_id == models.Host.id
         ).filter(
             models.Host.ip_address.in_(clean_host_ips),
             models.Vulnerability.plugin_id.in_(clean_plugin_ids),
-            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+            models.Vulnerability.scan_id.in_(latest_scan_ids),
+            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+            allowed_status_clause
         )
         if target_gids:
             mq = mq.filter(models.Vulnerability.asset_group_id.in_(target_gids))
@@ -941,10 +1600,10 @@ def validate_action_plan_relational_scope(
         if unmatched_hosts or unmatched_plugins:
             critiques = []
             if unmatched_hosts:
-                critiques.append(f"Hosts sem nenhuma das vulnerabilidades selecionadas: {', '.join(sorted(unmatched_hosts))}")
+                critiques.append(f"Hosts sem nenhuma das vulnerabilidades selecionadas na importação mais recente: {', '.join(sorted(unmatched_hosts))}")
             if unmatched_plugins:
-                critiques.append(f"Plugin IDs não vinculados a nenhum dos hosts da lista: {', '.join(sorted(unmatched_plugins))}")
-            msg = f"Plano de Ação inválido / não relacional: Cada host deve possuir ao menos uma vulnerabilidade associada e cada plugin deve afetar ao menos um host. {'; '.join(critiques)}."
+                critiques.append(f"Plugin IDs não vinculados a nenhum dos hosts na importação mais recente: {', '.join(sorted(unmatched_plugins))}")
+            msg = f"Plano de Ação inválido / não relacional: Cada host deve possuir ao menos uma vulnerabilidade associada e cada plugin deve afetar ao menos um host na importação mais recente. {'; '.join(critiques)}."
             if strict_raise:
                 raise HTTPException(status_code=422, detail=msg)
             return False, unmatched_hosts, unmatched_plugins, msg, matching_vulns
@@ -958,12 +1617,16 @@ def validate_action_plan_relational_scope(
                 raise HTTPException(status_code=422, detail=msg)
             return False, [], [], msg, []
 
-        g_query = db.query(models.Vulnerability).filter(
-            models.Vulnerability.asset_group_id.in_(target_gids),
-            models.Vulnerability.severity.in_(["Critical", "critical", "High", "high"]),
-            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
-        ).limit(200)
-        matching_vulns = g_query.all()
+        matching_vulns = []
+        if latest_scan_ids:
+            g_query = db.query(models.Vulnerability).filter(
+                models.Vulnerability.asset_group_id.in_(target_gids),
+                models.Vulnerability.scan_id.in_(latest_scan_ids),
+                models.Vulnerability.severity.in_(["Critical", "critical", "High", "high"]),
+                ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+                allowed_status_clause
+            ).limit(200)
+            matching_vulns = g_query.all()
         return True, [], [], None, matching_vulns
 
     # CUSTOM ou outros escopos manuais
@@ -990,7 +1653,8 @@ def preview_action_plan_impact(
         target_plugin_id=data.target_plugin_id,
         scope_host_ips=data.scope_host_ips,
         scope_plugin_ids=data.scope_plugin_ids,
-        strict_raise=False
+        strict_raise=False,
+        plan_id=data.plan_id
     )
 
     if not matching_vulns:
@@ -1095,7 +1759,8 @@ def create_action_plan(
         for ch in candidate_hosts:
             has_act = db.query(models.Vulnerability.id).filter(
                 models.Vulnerability.host_id == ch.id,
-                ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+                ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+                ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated", "Accepted_Risk", "accepted_risk"])
             ).first()
             if has_act:
                 target_host = ch
@@ -1118,7 +1783,8 @@ def create_action_plan(
         target_plugin_id=data.target_plugin_id,
         scope_host_ips=data.scope_host_ips,
         scope_plugin_ids=data.scope_plugin_ids,
-        strict_raise=True
+        strict_raise=True,
+        plan_id=None
     )
 
     plan = models.ActionPlan(
@@ -1167,43 +1833,41 @@ def create_action_plan(
             if t_data.vulnerability_ids:
                 link_vulns_to_task_with_precedence(db, task, t_data.vulnerability_ids, current_user.username, is_host_scope)
 
-    # Auto-link vulnerabilities according to validated scope
-    if data.auto_link_vulnerabilities and matching_vulns:
-        already_linked_ids = set(
-            link.vulnerability_id
-            for tk in (plan.tasks or [])
-            for link in (tk.vulnerability_links or [])
-        )
-        remaining_vulns = [v for v in matching_vulns if v.id not in already_linked_ids]
-        if remaining_vulns:
-            m_ids = [v.id for v in remaining_vulns]
-            if not data.initial_tasks:
-                task = models.ActionTask(
-                    action_plan_id=plan.id,
-                    title=f"Remediação de Vulnerabilidades ({len(matching_vulns)} apontamentos)",
-                    description=f"Execução das tratativas de correção para os achados identificados no escopo {plan.scope_type}.",
-                    order_index=0,
-                    status="TODO",
-                    assigned_user_id=plan.owner_user_id,
-                    due_date=plan.due_date
-                )
-                db.add(task)
-                db.flush()
-                link_vulns_to_task_with_precedence(db, task, m_ids, current_user.username, is_host_scope)
-            elif plan.tasks:
-                link_vulns_to_task_with_precedence(db, plan.tasks[0], m_ids, current_user.username, is_host_scope)
-    elif not data.initial_tasks:
-        task = models.ActionTask(
-            action_plan_id=plan.id,
-            title="Planejamento e Execução da Remediação",
-            description=f"Iniciativa de remediação estruturada no escopo {plan.scope_type}.",
-            order_index=0,
-            status="TODO",
-            assigned_user_id=plan.owner_user_id,
-            due_date=plan.due_date
-        )
-        db.add(task)
-        db.flush()
+        if data.auto_link_vulnerabilities and matching_vulns and plan.tasks:
+            already_linked_ids = set(
+                link.vulnerability_id
+                for tk in (plan.tasks or [])
+                for link in (tk.vulnerability_links or [])
+            )
+            remaining_vulns = [v for v in matching_vulns if v.id not in already_linked_ids]
+            if remaining_vulns:
+                link_vulns_to_task_with_precedence(db, plan.tasks[0], [v.id for v in remaining_vulns], current_user.username, is_host_scope)
+    else:
+        # Geração automática de tarefas conforme especificação:
+        # - Escopo baseado em Host: 1 tarefa para cada host.
+        # - Escopo MATRIX_NN (com plugins) ou VULNERABILITY: 1 tarefa para cada grupo HOST+VULNERABILIDADE.
+        # - Título da tarefa: hostname/ip. Abaixo (descrição): nome da vulnerabilidade.
+        if data.auto_link_vulnerabilities and matching_vulns:
+            scope_plugin_ids_explicit = bool(data.scope_plugin_ids and any(str(p).strip() for p in data.scope_plugin_ids))
+            generate_action_plan_tasks(
+                db=db,
+                plan=plan,
+                matching_vulns=matching_vulns,
+                current_username=current_user.username,
+                scope_plugin_ids_explicit=scope_plugin_ids_explicit
+            )
+        else:
+            task = models.ActionTask(
+                action_plan_id=plan.id,
+                title="Planejamento e Execução da Remediação",
+                description=f"Iniciativa de remediação estruturada no escopo {plan.scope_type}.",
+                order_index=0,
+                status="TODO",
+                assigned_user_id=plan.owner_user_id,
+                due_date=plan.due_date
+            )
+            db.add(task)
+            db.flush()
 
     db.commit()
     db.refresh(plan)
@@ -1236,6 +1900,7 @@ def update_action_plan(
         data.target_plugin_id is not None or
         data.asset_group_id is not None
     )
+    matching_vulns = []
     if scope_fields_modified:
         new_scope = (data.scope_type or p.scope_type).upper()
         new_asset_group = data.asset_group_id if data.asset_group_id is not None else p.asset_group_id
@@ -1245,7 +1910,7 @@ def update_action_plan(
         new_host_ips = data.scope_host_ips if data.scope_host_ips is not None else [h.host_ip for h in p.scope_hosts]
         new_plugin_ids = data.scope_plugin_ids if data.scope_plugin_ids is not None else [pl.plugin_id for pl in p.scope_plugins]
 
-        validate_action_plan_relational_scope(
+        is_valid, _, _, _, matching_vulns = validate_action_plan_relational_scope(
             db=db,
             scope_type=new_scope,
             asset_group_id=new_asset_group,
@@ -1254,7 +1919,8 @@ def update_action_plan(
             target_plugin_id=new_plugin_id,
             scope_host_ips=new_host_ips,
             scope_plugin_ids=new_plugin_ids,
-            strict_raise=True
+            strict_raise=True,
+            plan_id=p.id
         )
 
     if data.title is not None:
@@ -1275,7 +1941,8 @@ def update_action_plan(
             for ch in candidate_hosts:
                 has_act = db.query(models.Vulnerability.id).filter(
                     models.Vulnerability.host_id == ch.id,
-                    ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+                    ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+                    ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated", "Accepted_Risk"])
                 ).first()
                 if has_act:
                     target_h = ch
@@ -1312,15 +1979,25 @@ def update_action_plan(
     # Sync tags and matrix scope if provided
     if data.tags is not None:
         sync_action_plan_tags(db, p, data.tags)
-    if data.scope_host_ips is not None or data.scope_plugin_ids is not None:
-        actual_plugin_ids = data.scope_plugin_ids
-        actual_host_ips = data.scope_host_ips
+
+    if scope_fields_modified:
+        actual_plugin_ids = data.scope_plugin_ids if data.scope_plugin_ids is not None else [pl.plugin_id for pl in p.scope_plugins]
+        actual_host_ips = data.scope_host_ips if data.scope_host_ips is not None else [h.host_ip for h in p.scope_hosts]
         if p.scope_type == "MATRIX_NN" and matching_vulns:
             if not actual_plugin_ids:
                 actual_plugin_ids = list(dict.fromkeys(str(v.plugin_id) for v in matching_vulns if v.plugin_id))
             if not actual_host_ips:
                 actual_host_ips = list(dict.fromkeys(str(v.host.ip_address) for v in matching_vulns if v.host and v.host.ip_address))
         sync_action_plan_matrix_scope(db, p, actual_host_ips, actual_plugin_ids)
+
+        scope_plugin_ids_explicit = bool(actual_plugin_ids and any(str(pl).strip() for pl in actual_plugin_ids))
+        sync_action_plan_tasks_on_scope_update(
+            db=db,
+            plan=p,
+            matching_vulns=matching_vulns,
+            current_username=current_user.username,
+            scope_plugin_ids_explicit=scope_plugin_ids_explicit
+        )
 
     p.updated_at = utc_now()
     db.commit()

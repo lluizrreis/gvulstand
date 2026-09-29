@@ -1028,3 +1028,16 @@ html.dark .risk-progress-bar {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* Fixed Global Header */
+#app-view header {
+  position: -webkit-sticky !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 40 !important;
+}
+
+.overflow-x-clip {
+  overflow-x: clip !important;
+}
+

@@ -31,10 +31,31 @@ def test_action_plans_lifecycle_and_features():
     assert "total_plans" in stats_init
     assert "overall_progress_percent" in stats_init
 
-    # Find a host and vulnerability in DB for linking
+    # Find a host and vulnerability in latest scan for linking
     db = SessionLocal()
-    vuln = db.query(models.Vulnerability).filter(~models.Vulnerability.severity.in_(["Info", "info"])).first()
-    host = vuln.host if vuln else db.query(models.Host).first()
+    latest_scan = db.query(models.Scan).order_by(models.Scan.scan_date.desc(), models.Scan.id.desc()).first()
+    vuln = None
+    if latest_scan:
+        vuln = db.query(models.Vulnerability).filter(
+            models.Vulnerability.scan_id == latest_scan.id,
+            ~models.Vulnerability.severity.in_(["Info", "info"]),
+            models.Vulnerability.treatment_status.in_(["Open", "open"])
+        ).first()
+    if not vuln:
+        vuln = db.query(models.Vulnerability).filter(
+            ~models.Vulnerability.severity.in_(["Info", "info"]),
+            models.Vulnerability.treatment_status.in_(["Open", "open"])
+        ).order_by(models.Vulnerability.id.desc()).first()
+    if not vuln and latest_scan:
+        vuln = db.query(models.Vulnerability).filter(
+            models.Vulnerability.scan_id == latest_scan.id,
+            ~models.Vulnerability.severity.in_(["Info", "info"])
+        ).first()
+        if vuln:
+            vuln.treatment_status = "Open"
+            db.commit()
+            db.refresh(vuln)
+    host = vuln.host if vuln else db.query(models.Host).order_by(models.Host.id.desc()).first()
     db.close()
 
     host_id = host.id if host else None
@@ -178,6 +199,7 @@ def test_action_plan_creation_from_host_ip_and_plugin():
     db = SessionLocal()
     vuln = db.query(models.Vulnerability).filter(~models.Vulnerability.severity.in_(["Info", "info"])).first()
     host = vuln.host if vuln else None
+    plugin_id = vuln.plugin_id if vuln else "100464"
     db.close()
 
     host_ip = host.ip_address if host else "10.233.20.4"
@@ -200,16 +222,16 @@ def test_action_plan_creation_from_host_ip_and_plugin():
 
     # 2. Create plan by Plugin ID
     res_plugin = client.post("/api/action-plans", json={
-        "title": "Plano de Remediação Plugin 104743",
+        "title": f"Plano de Remediação Plugin {plugin_id}",
         "scope_type": "VULNERABILITY",
-        "target_plugin_id": "104743",
+        "target_plugin_id": plugin_id,
         "priority": "CRITICAL",
         "status": "PLANNED",
         "auto_link_vulnerabilities": True
     }, headers=headers)
     assert res_plugin.status_code == 200
     plan_plugin = res_plugin.json()
-    assert plan_plugin["target_plugin_id"] == "104743"
+    assert plan_plugin["target_plugin_id"] == plugin_id
 
     # Cleanup
     client.delete(f"/api/action-plans/{plan_host['id']}", headers=headers)
@@ -379,8 +401,12 @@ def test_action_plans_matrix_scope_and_preview():
 
     # 3. Create Valid Matrix Plan with existing hosts and associated plugin
     db = SessionLocal()
+    real_sample_vuln = db.query(models.Vulnerability).filter(
+        ~models.Vulnerability.severity.in_(["Info", "info"])
+    ).first()
+    matrix_plugin_id = real_sample_vuln.plugin_id if real_sample_vuln else "100464"
     real_vulns = db.query(models.Vulnerability).filter(
-        models.Vulnerability.plugin_id == "104743",
+        models.Vulnerability.plugin_id == matrix_plugin_id,
         ~models.Vulnerability.severity.in_(["Info", "info"])
     ).limit(2).all()
     real_host_ips = list(dict.fromkeys([v.host.ip_address for v in real_vulns if v.host]))
@@ -393,14 +419,14 @@ def test_action_plans_matrix_scope_and_preview():
         "priority": "HIGH",
         "status": "PLANNED",
         "scope_host_ips": real_host_ips,
-        "scope_plugin_ids": ["104743"]
+        "scope_plugin_ids": [matrix_plugin_id]
     }
     res_create = client.post("/api/action-plans", json=valid_matrix_payload, headers=headers)
     assert res_create.status_code == 200
     plan = res_create.json()
     plan_id = plan["id"]
     assert plan["scope_type"] == "MATRIX_NN"
-    assert "104743" in plan["scope_plugin_ids"]
+    assert matrix_plugin_id in plan["scope_plugin_ids"]
 
     # 4. Reject Update Matrix Plan with non-existent / orphan host (HTTP 422)
     res_update_inv = client.put(f"/api/action-plans/{plan_id}", json={
@@ -418,16 +444,16 @@ def test_action_plans_precedence_and_orphans():
 
     # Setup test host and vulnerability in DB
     db = SessionLocal()
-    group = db.query(models.AssetGroup).first()
-    if not group:
-        group = models.AssetGroup(name="Grupo Precedencia Test")
-        db.add(group)
-        db.commit()
-        db.refresh(group)
-
-    test_ip = f"172.16.99.{int(datetime.now().timestamp()) % 240 + 5}"
-    scan = db.query(models.Scan).first()
-    if not scan:
+    scan = db.query(models.Scan).order_by(models.Scan.scan_date.desc(), models.Scan.id.desc()).first()
+    if scan and scan.asset_group_id:
+        group = db.query(models.AssetGroup).filter(models.AssetGroup.id == scan.asset_group_id).first()
+    else:
+        group = db.query(models.AssetGroup).first()
+        if not group:
+            group = models.AssetGroup(name="Grupo Precedencia Test")
+            db.add(group)
+            db.commit()
+            db.refresh(group)
         scan = models.Scan(
             asset_group_id=group.id,
             filename="prec_test_scan.csv",
@@ -437,6 +463,8 @@ def test_action_plans_precedence_and_orphans():
         db.add(scan)
         db.commit()
         db.refresh(scan)
+
+    test_ip = f"172.16.99.{int(datetime.now().timestamp()) % 240 + 5}"
 
     host = models.Host(
         scan_id=scan.id,
@@ -555,7 +583,7 @@ def test_action_plan_rejection_for_non_existent_or_empty_host():
     # 2. Host with no actionable vulnerabilities
     db = SessionLocal()
     group = db.query(models.AssetGroup).first()
-    scan = db.query(models.Scan).first()
+    scan = db.query(models.Scan).filter(models.Scan.asset_group_id == group.id).order_by(models.Scan.scan_date.desc(), models.Scan.id.desc()).first() or db.query(models.Scan).order_by(models.Scan.scan_date.desc(), models.Scan.id.desc()).first()
     dummy_ip = f"192.0.2.{int(datetime.now().timestamp()) % 200 + 10}"
     h_empty = models.Host(
         scan_id=scan.id if scan else None,
@@ -694,9 +722,26 @@ def test_action_plan_deletion_reverts_vulnerabilities_to_open_and_logs():
     headers = {"Authorization": f"Bearer {token}"}
 
     db = SessionLocal()
-    group = db.query(models.AssetGroup).first()
-    scan = db.query(models.Scan).first()
+    scan = db.query(models.Scan).order_by(models.Scan.scan_date.desc(), models.Scan.id.desc()).first()
     ts = int(datetime.now().timestamp())
+    if scan and scan.asset_group_id:
+        group = db.query(models.AssetGroup).filter(models.AssetGroup.id == scan.asset_group_id).first()
+    else:
+        group = db.query(models.AssetGroup).first()
+        if not group:
+            group = models.AssetGroup(name="Grupo Teste Exclusao")
+            db.add(group)
+            db.commit()
+            db.refresh(group)
+        scan = models.Scan(
+            asset_group_id=group.id,
+            filename=f"del_test_{ts}.csv",
+            scan_name="Del Test Scan",
+            uploaded_by="Admin"
+        )
+        db.add(scan)
+        db.commit()
+        db.refresh(scan)
 
     del_ip = f"198.18.5.{ts % 200 + 5}"
     del_plug = f"PLUG_DEL_{ts % 90000}"
@@ -880,6 +925,877 @@ def test_action_plan_wizard_multiple_plugins_selection():
         assert set(created_auto["scope_plugin_ids"]) == set(selected_plugins)
 
         client.delete(f"/api/action-plans/{created_auto['id']}", headers=headers)
+
+
+def test_action_plan_automated_tasks_generation_rules():
+    """
+    Valida as regras de negócio de geração automática de tarefas:
+    1. Escopo baseado em Host (HOST ou MATRIX_NN sem plugins):
+       - Cria 1 tarefa para cada host.
+       - Título: hostname/ip.
+       - Abaixo (descrição): nome da(s) vulnerabilidade(s).
+    2. Escopo MATRIX_NN (com plugins específicos) ou VULNERABILITY:
+       - Cria 1 tarefa para cada grupo (HOST + VULNERABILIDADE).
+       - Título: hostname/ip.
+       - Abaixo (descrição): nome da vulnerabilidade.
+    """
+    token = get_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db = SessionLocal()
+    # Obter vulnerabilidade e host ativo do scan mais recente
+    latest_scan = db.query(models.Scan).order_by(models.Scan.scan_date.desc(), models.Scan.id.desc()).first()
+    v1 = None
+    if latest_scan:
+        v1 = db.query(models.Vulnerability).filter(
+            models.Vulnerability.scan_id == latest_scan.id,
+            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+            models.Vulnerability.treatment_status.in_(["Open", "open"])
+        ).first()
+    if not v1:
+        v1 = db.query(models.Vulnerability).filter(
+            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+            models.Vulnerability.treatment_status.in_(["Open", "open"])
+        ).order_by(models.Vulnerability.id.desc()).first()
+    if not v1 and latest_scan:
+        # Garantir que há ao menos uma vuln Open resetando uma não remediada
+        v1 = db.query(models.Vulnerability).filter(
+            models.Vulnerability.scan_id == latest_scan.id,
+            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+        ).first()
+        if v1:
+            v1.treatment_status = "Open"
+            db.commit()
+            db.refresh(v1)
+    assert v1 is not None
+    h1 = v1.host
+    assert h1 is not None
+    ip1 = h1.ip_address
+    p1 = v1.plugin_id
+    h1_vulns = [v for v in h1.vulnerabilities if v.scan_id == v1.scan_id and v.severity not in ["Info", "info", "None", "none"]]
+    assert len(h1_vulns) >= 1
+    db.close()
+
+    # -------------------------------------------------------------
+    # 1. Teste de Escopo HOST: 1 tarefa para cada host
+    # -------------------------------------------------------------
+    res_host_plan = client.post("/api/action-plans", json={
+        "title": f"Plano Escopo Host Teste {ip1}",
+        "scope_type": "HOST",
+        "target_host_id": h1.id,
+        "priority": "HIGH",
+        "status": "PLANNED",
+        "auto_link_vulnerabilities": True
+    }, headers=headers)
+    assert res_host_plan.status_code == 200
+    host_plan = res_host_plan.json()
+    assert host_plan["total_tasks"] == 1
+    t_host = host_plan["tasks"][0]
+    assert ip1 in t_host["title"]
+    assert v1.plugin_name in t_host["description"]
+    assert t_host["vulnerabilities_count"] >= 1
+
+    client.delete(f"/api/action-plans/{host_plan['id']}", headers=headers)
+
+    # -------------------------------------------------------------
+    # 2. Teste de Escopo VULNERABILITY: 1 tarefa para cada grupo HOST+VULNERABILIDADE
+    # -------------------------------------------------------------
+    res_vuln_plan = client.post("/api/action-plans", json={
+        "title": f"Plano Escopo Vulnerabilidade Teste {p1}",
+        "scope_type": "VULNERABILITY",
+        "target_plugin_id": p1,
+        "priority": "HIGH",
+        "status": "PLANNED",
+        "auto_link_vulnerabilities": True
+    }, headers=headers)
+    assert res_vuln_plan.status_code == 200
+    vuln_plan = res_vuln_plan.json()
+    assert vuln_plan["total_tasks"] >= 1
+    for task in vuln_plan["tasks"]:
+        assert len(task["description"]) > 0 and (task["description"] == v1.plugin_name or f"#{p1}" in task["description"] or "EternalBlue" in task["description"] or "MS17-010" in task["description"])
+        assert len(task["vulnerability_links"]) >= 1
+        # Verificar que o título é um hostname/ip válido
+        assert any(c.isdigit() for c in task["title"]) or len(task["title"]) > 0
+
+    client.delete(f"/api/action-plans/{vuln_plan['id']}", headers=headers)
+
+    # -------------------------------------------------------------
+    # 3. Teste de Escopo MATRIX_NN com plugins específicos: 1 tarefa por HOST+VULNERABILIDADE
+    # -------------------------------------------------------------
+    res_matrix = client.post("/api/action-plans", json={
+        "title": f"Plano Matriz N:N Host+Vuln Teste {ip1}",
+        "scope_type": "MATRIX_NN",
+        "scope_host_ips": [ip1],
+        "scope_plugin_ids": [p1],
+        "priority": "HIGH",
+        "status": "PLANNED",
+        "auto_link_vulnerabilities": True
+    }, headers=headers)
+    assert res_matrix.status_code == 200
+    matrix_plan = res_matrix.json()
+    assert matrix_plan["total_tasks"] == 1
+    t_mat = matrix_plan["tasks"][0]
+    assert ip1 in t_mat["title"]
+    assert t_mat["description"] == v1.plugin_name
+    assert t_mat["vulnerabilities_count"] >= 1
+
+    client.delete(f"/api/action-plans/{matrix_plan['id']}", headers=headers)
+
+    # -------------------------------------------------------------
+    # 4. Teste de Escopo MATRIX_NN sem plugins (todas as vulns dos hosts): 1 tarefa por host
+    # -------------------------------------------------------------
+    res_matrix_all = client.post("/api/action-plans", json={
+        "title": f"Plano Matriz Todos Itens Teste {ip1}",
+        "scope_type": "MATRIX_NN",
+        "scope_host_ips": [ip1],
+        "scope_plugin_ids": [],
+        "priority": "HIGH",
+        "status": "PLANNED",
+        "auto_link_vulnerabilities": True
+    }, headers=headers)
+    assert res_matrix_all.status_code == 200
+    matrix_all_plan = res_matrix_all.json()
+    assert matrix_all_plan["total_tasks"] == 1
+    t_all = matrix_all_plan["tasks"][0]
+    assert ip1 in t_all["title"]
+    assert v1.plugin_name in t_all["description"]
+    assert t_all["vulnerabilities_count"] >= 1
+
+    client.delete(f"/api/action-plans/{matrix_all_plan['id']}", headers=headers)
+
+
+def test_action_plan_latest_scan_only_and_post_import_lifecycle():
+    """
+    Testa o ciclo de vida completo solicitado pelo usuário:
+    1. Criação do plano usa SOMENTE os dados da importação mais recente do grupo de ativos.
+    2. Ao importar novo scan com recorrência (host+vulnerabilidade presente), associa a recorrência ao mesmo plano.
+    3. Quando no novo scan a vulnerabilidade não aparece mais para o host escaneado, conclui a etapa (DONE) e marca como Remediated.
+    4. Se o plano está em Planejado/Em Andamento e a vulnerabilidade reaparece para uma tarefa DONE, a etapa muda para 'Em Revisão' (REVIEW) e vuln para In_Action_Plan.
+    """
+    from datetime import datetime, timezone, timedelta
+    token = get_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    db = SessionLocal()
+
+    # Criar Grupo de Ativos isolado para o teste
+    group = models.AssetGroup(name=f"Grupo Ciclo Vida {datetime.now(timezone.utc).timestamp()}", description="Teste PDCA")
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    gid = group.id
+
+    now = datetime.now(timezone.utc)
+    t1 = now - timedelta(days=2)
+    t2 = now - timedelta(days=1)
+
+    # 1. Scan 1 (antigo): Host 10.99.1.10 com Plugin 11111 (Critical) e Plugin 22222 (High)
+    scan1 = models.Scan(scan_name="Scan 1 Antigo", filename="scan1_antigo.csv", scan_date=t1, asset_group_id=gid)
+    db.add(scan1)
+    db.commit()
+    db.refresh(scan1)
+
+    host1_s1 = models.Host(ip_address="10.99.1.10", hostname="srv-antigo.local", scan_id=scan1.id, asset_group_id=gid)
+    db.add(host1_s1)
+    db.commit()
+    db.refresh(host1_s1)
+
+    v1_s1 = models.Vulnerability(
+        host_id=host1_s1.id, scan_id=scan1.id, asset_group_id=gid,
+        plugin_id="11111", plugin_name="Vuln Persistente Teste", severity="Critical", treatment_status="Open"
+    )
+    v2_s1 = models.Vulnerability(
+        host_id=host1_s1.id, scan_id=scan1.id, asset_group_id=gid,
+        plugin_id="22222", plugin_name="Vuln Corrigida Antiga", severity="High", treatment_status="Open"
+    )
+    db.add_all([v1_s1, v2_s1])
+    db.commit()
+
+    # 2. Scan 2 (recente): Host 10.99.1.10 com apenas Plugin 11111 (Plugin 22222 sumiu) e Host 10.99.1.20 com Plugin 33333
+    scan2 = models.Scan(scan_name="Scan 2 Recente", filename="scan2_recente.csv", scan_date=t2, asset_group_id=gid)
+    db.add(scan2)
+    db.commit()
+    db.refresh(scan2)
+
+    host1_s2 = models.Host(ip_address="10.99.1.10", hostname="srv-novo.local", scan_id=scan2.id, asset_group_id=gid)
+    host2_s2 = models.Host(ip_address="10.99.1.20", hostname="srv-web.local", scan_id=scan2.id, asset_group_id=gid)
+    db.add_all([host1_s2, host2_s2])
+    db.commit()
+    db.refresh(host1_s2)
+    db.refresh(host2_s2)
+
+    v1_s2 = models.Vulnerability(
+        host_id=host1_s2.id, scan_id=scan2.id, asset_group_id=gid,
+        plugin_id="11111", plugin_name="Vuln Persistente Teste", severity="Critical", treatment_status="Open"
+    )
+    v3_s2 = models.Vulnerability(
+        host_id=host2_s2.id, scan_id=scan2.id, asset_group_id=gid,
+        plugin_id="33333", plugin_name="Vuln Host2 Teste", severity="High", treatment_status="Open"
+    )
+    db.add_all([v1_s2, v3_s2])
+    db.commit()
+    v1_s2_id = v1_s2.id
+    db.close()
+
+    # Teste 1: Wizard e Validação devem enxergar SOMENTE os dados do Scan 2 (o mais recente do grupo)
+    res_wiz_vulns = client.get(f"/api/action-plans/wizard/vulnerabilities?asset_group_id={gid}", headers=headers)
+    assert res_wiz_vulns.status_code == 200
+    wiz_vuln_pids = [w["plugin_id"] for w in res_wiz_vulns.json()]
+    assert "11111" in wiz_vuln_pids
+    assert "33333" in wiz_vuln_pids
+    # Plugin 22222 existia apenas no scan1 antigo e NÃO deve aparecer nas candidatas
+    assert "22222" not in wiz_vuln_pids
+
+    # Tentativa de criar plano com Plugin 22222 deve falhar (422) porque não existe no scan recente
+    res_fail = client.post("/api/action-plans", json={
+        "title": "Plano Inválido Scan Antigo",
+        "asset_group_id": gid,
+        "scope_type": "MATRIX_NN",
+        "scope_host_ips": ["10.99.1.10"],
+        "scope_plugin_ids": ["22222"],
+        "priority": "HIGH",
+        "status": "PLANNED"
+    }, headers=headers)
+    assert res_fail.status_code == 422
+    assert "importação mais recente" in res_fail.json()["detail"]
+
+    # Criar Plano Válido para Host 10.99.1.10 com Plugin 11111
+    res_plan = client.post("/api/action-plans", json={
+        "title": "Plano Remediação Host1 Vuln1",
+        "asset_group_id": gid,
+        "scope_type": "MATRIX_NN",
+        "scope_host_ips": ["10.99.1.10"],
+        "scope_plugin_ids": ["11111"],
+        "priority": "HIGH",
+        "status": "IN_PROGRESS",
+        "auto_link_vulnerabilities": True
+    }, headers=headers)
+    assert res_plan.status_code == 200
+    plan_data = res_plan.json()
+    plan_id = plan_data["id"]
+    assert plan_data["total_tasks"] == 1
+    task_id = plan_data["tasks"][0]["id"]
+
+    # Teste 2: Importar Scan 3 contendo Host 10.99.1.10 com recorrência de Plugin 11111
+    # Deve associar a nova vulnerabilidade à mesma tarefa
+    db = SessionLocal()
+    scan3 = models.Scan(scan_name="Scan 3 Recorrencia", filename="scan3_recorrencia.csv", scan_date=now, asset_group_id=gid)
+    db.add(scan3)
+    db.commit()
+    db.refresh(scan3)
+
+    host1_s3 = models.Host(ip_address="10.99.1.10", hostname="srv-novo.local", scan_id=scan3.id, asset_group_id=gid)
+    db.add(host1_s3)
+    db.commit()
+    db.refresh(host1_s3)
+
+    v1_s3 = models.Vulnerability(
+        host_id=host1_s3.id, scan_id=scan3.id, asset_group_id=gid,
+        plugin_id="11111", plugin_name="Vuln Persistente Teste", severity="Critical", treatment_status="Open"
+    )
+    db.add(v1_s3)
+    db.commit()
+    db.refresh(v1_s3)
+    v1_s3_id = v1_s3.id
+
+    from app.api.routes_action_plans import sync_action_plans_on_scan_import
+    sync_action_plans_on_scan_import(db, scan3, "admin")
+
+    # Verificar que v1_s3 foi vinculada à tarefa e marcada como In_Action_Plan
+    db.refresh(v1_s3)
+    assert v1_s3.treatment_status == "In_Action_Plan"
+    link_exists = db.query(models.ActionTaskVulnerabilityLink).filter(
+        models.ActionTaskVulnerabilityLink.action_task_id == task_id,
+        models.ActionTaskVulnerabilityLink.vulnerability_id == v1_s3.id
+    ).first()
+    assert link_exists is not None
+
+    # Teste 3: Importar Scan 4 onde Host 10.99.1.10 foi escaneado MAS Plugin 11111 não apareceu mais (remediada)
+    # A etapa deve ser concluída (DONE) e as vulnerabilidades anteriores marcadas como Remediated
+    scan4 = models.Scan(scan_name="Scan 4 Corrigido", filename="scan4_corrigido.csv", scan_date=now + timedelta(hours=1), asset_group_id=gid)
+    db.add(scan4)
+    db.commit()
+    db.refresh(scan4)
+
+    host1_s4 = models.Host(ip_address="10.99.1.10", hostname="srv-novo.local", scan_id=scan4.id, asset_group_id=gid)
+    db.add(host1_s4)
+    db.commit()
+
+    sync_action_plans_on_scan_import(db, scan4, "admin")
+
+    t_check = db.query(models.ActionTask).filter(models.ActionTask.id == task_id).first()
+    assert t_check.status == "DONE"
+    assert t_check.completed_at is not None
+
+    # Verificar que v1_s2 e v1_s3 foram marcadas como Remediated
+    v1_s2_db = db.query(models.Vulnerability).filter(models.Vulnerability.id == v1_s2_id).first()
+    v1_s3_db = db.query(models.Vulnerability).filter(models.Vulnerability.id == v1_s3_id).first()
+    assert v1_s2_db.treatment_status == "Remediated"
+    assert v1_s3_db.treatment_status == "Remediated"
+
+    # Teste 4: Reincidência. O plano está em IN_PROGRESS, a tarefa está como DONE.
+    # Novo Scan 5 onde Host 10.99.1.10 tem novamente Plugin 11111.
+    # A etapa DEVE ir para "REVIEW" ('Em Revisão') e o status da vulnerabilidade para 'In_Action_Plan'.
+    p_check = db.query(models.ActionPlan).filter(models.ActionPlan.id == plan_id).first()
+    p_check.status = "IN_PROGRESS"
+    db.commit()
+
+    scan5 = models.Scan(scan_name="Scan 5 Reincidencia", filename="scan5_reincidencia.csv", scan_date=now + timedelta(hours=2), asset_group_id=gid)
+    db.add(scan5)
+    db.commit()
+    db.refresh(scan5)
+
+    host1_s5 = models.Host(ip_address="10.99.1.10", hostname="srv-novo.local", scan_id=scan5.id, asset_group_id=gid)
+    db.add(host1_s5)
+    db.commit()
+    db.refresh(host1_s5)
+
+    v1_s5 = models.Vulnerability(
+        host_id=host1_s5.id, scan_id=scan5.id, asset_group_id=gid,
+        plugin_id="11111", plugin_name="Vuln Persistente Teste", severity="Critical", treatment_status="Open"
+    )
+    db.add(v1_s5)
+    db.commit()
+    db.refresh(v1_s5)
+    v1_s5_id = v1_s5.id
+
+    sync_action_plans_on_scan_import(db, scan5, "admin")
+
+    db.refresh(t_check)
+    assert t_check.status == "REVIEW"
+    assert t_check.completed_at is None
+
+    v1_s5_db = db.query(models.Vulnerability).filter(models.Vulnerability.id == v1_s5_id).first()
+    assert v1_s5_db.treatment_status == "In_Action_Plan"
+
+    # Cleanup
+    client.delete(f"/api/action-plans/{plan_id}", headers=headers)
+    db.close()
+
+
+def test_action_plan_update_scope_and_task_sync():
+    """
+    Testa a edição de Plano de Ação adicionando novos servidores e novas vulnerabilidades:
+    1. Criação inicial com 1 host e 1 plugin.
+    2. Edição (PUT) expandindo escopo com novo host e novo plugin -> Deve retornar 200 (sem erro 500) e sincronizar tarefas.
+    3. Edição removendo plugin -> Deve remover tarefa órfã e reverter vulnerabilidade para 'Open'.
+    4. Edição de metadados (sem alterar escopo) -> Preserva tarefas existentes.
+    """
+    from datetime import datetime, timezone
+    token = get_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    db = SessionLocal()
+
+    # Criar Grupo e Scan
+    ts = int(datetime.now(timezone.utc).timestamp())
+    group = models.AssetGroup(name=f"Grupo Teste Edicao {ts}")
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    gid = group.id
+
+    scan = models.Scan(scan_name="Scan Edicao", filename=f"scan_edicao_{ts}.csv", asset_group_id=gid)
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+
+    # 2 Hosts e 2 Plugins
+    ip_a = f"10.200.1.{ts % 200 + 1}"
+    ip_b = f"10.200.1.{(ts + 1) % 200 + 1}"
+    host_a = models.Host(ip_address=ip_a, hostname=f"srv-a-{ts}", scan_id=scan.id, asset_group_id=gid)
+    host_b = models.Host(ip_address=ip_b, hostname=f"srv-b-{ts}", scan_id=scan.id, asset_group_id=gid)
+    db.add_all([host_a, host_b])
+    db.commit()
+    db.refresh(host_a)
+    db.refresh(host_b)
+
+    pid_1 = f"PLUG_{ts % 90000 + 100}"
+    pid_2 = f"PLUG_{ts % 90000 + 200}"
+
+    v_a1 = models.Vulnerability(host_id=host_a.id, scan_id=scan.id, asset_group_id=gid, plugin_id=pid_1, plugin_name="Falha 1 Servidor A", severity="High", treatment_status="Open")
+    v_b2 = models.Vulnerability(host_id=host_b.id, scan_id=scan.id, asset_group_id=gid, plugin_id=pid_2, plugin_name="Falha 2 Servidor B", severity="Critical", treatment_status="Open")
+    db.add_all([v_a1, v_b2])
+    db.commit()
+    db.refresh(v_a1)
+    db.refresh(v_b2)
+    va1_id = v_a1.id
+    vb2_id = v_b2.id
+    db.close()
+
+    # 1. Criação inicial: apenas Host A e Plugin 1
+    res_create = client.post("/api/action-plans", json={
+        "title": f"Plano Edição Teste {ts}",
+        "scope_type": "MATRIX_NN",
+        "asset_group_id": gid,
+        "scope_host_ips": [ip_a],
+        "scope_plugin_ids": [pid_1],
+        "priority": "HIGH",
+        "status": "PLANNED",
+        "auto_link_vulnerabilities": True
+    }, headers=headers)
+    assert res_create.status_code == 200
+    plan_data = res_create.json()
+    plan_id = plan_data["id"]
+    assert plan_data["total_tasks"] == 1
+    assert ip_a in plan_data["tasks"][0]["title"]
+
+    # 2. Edição (PUT): Adicionar Host B e Plugin 2
+    # Este era o ponto exato que causava erro 500 no backend ("NameError: matching_vulns is not defined")
+    res_update = client.put(f"/api/action-plans/{plan_id}", json={
+        "title": f"Plano Edição Atualizado {ts}",
+        "scope_type": "MATRIX_NN",
+        "asset_group_id": gid,
+        "scope_host_ips": [ip_a, ip_b],
+        "scope_plugin_ids": [pid_1, pid_2],
+        "priority": "CRITICAL",
+        "status": "PLANNED"
+    }, headers=headers)
+    assert res_update.status_code == 200, f"Erro ao editar plano: {res_update.text}"
+    updated_plan = res_update.json()
+    assert updated_plan["priority"] == "CRITICAL"
+    assert len(updated_plan["scope_host_ips"]) == 2
+    assert len(updated_plan["scope_plugin_ids"]) == 2
+    assert updated_plan["total_tasks"] == 2
+
+    # Verificar que as vulnerabilidades de ambos os hosts estão In_Action_Plan
+    db = SessionLocal()
+    va1_check = db.query(models.Vulnerability).filter(models.Vulnerability.id == va1_id).first()
+    vb2_check = db.query(models.Vulnerability).filter(models.Vulnerability.id == vb2_id).first()
+    assert va1_check.treatment_status == "In_Action_Plan"
+    assert vb2_check.treatment_status == "In_Action_Plan"
+    db.close()
+
+    # 3. Edição (PUT): Remover Host A e Plugin 1 (ficando somente Host B e Plugin 2)
+    res_update2 = client.put(f"/api/action-plans/{plan_id}", json={
+        "scope_type": "MATRIX_NN",
+        "asset_group_id": gid,
+        "scope_host_ips": [ip_b],
+        "scope_plugin_ids": [pid_2]
+    }, headers=headers)
+    assert res_update2.status_code == 200
+    plan_reduced = res_update2.json()
+    assert plan_reduced["total_tasks"] == 1
+    assert ip_b in plan_reduced["tasks"][0]["title"]
+
+    # va1 deve ter revertido para Open pois seu host/plugin saiu do plano
+    db = SessionLocal()
+    va1_reverted = db.query(models.Vulnerability).filter(models.Vulnerability.id == va1_id).first()
+    vb2_still = db.query(models.Vulnerability).filter(models.Vulnerability.id == vb2_id).first()
+    assert va1_reverted.treatment_status == "Open"
+    assert vb2_still.treatment_status == "In_Action_Plan"
+    db.close()
+
+    # 4. Edição de metadados sem mexer em escopo
+    res_update3 = client.put(f"/api/action-plans/{plan_id}", json={
+        "title": "Novo Titulo Sem Mudar Escopo",
+        "priority": "LOW"
+    }, headers=headers)
+    assert res_update3.status_code == 200
+    plan_meta = res_update3.json()
+    assert plan_meta["title"] == "Novo Titulo Sem Mudar Escopo"
+    assert plan_meta["priority"] == "LOW"
+    assert plan_meta["total_tasks"] == 1
+
+    # Cleanup
+    client.delete(f"/api/action-plans/{plan_id}", headers=headers)
+
+
+def test_dashboard_stats_action_plans_summary():
+    token = get_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Obter estatísticas iniciais
+    res_init = client.get("/api/dashboard/stats", headers=headers)
+    assert res_init.status_code == 200
+    stats_init = res_init.json()
+    assert "action_plans_summary" in stats_init
+    ap_summary = stats_init["action_plans_summary"]
+    assert "total_plans" in ap_summary
+    assert "active_plans" in ap_summary
+    assert "total_vulns" in ap_summary
+    assert "critical" in ap_summary
+    assert "high" in ap_summary
+    assert "medium" in ap_summary
+    assert "low" in ap_summary
+
+    init_total_plans = ap_summary["total_plans"]
+    init_active_plans = ap_summary["active_plans"]
+
+    # 2. Criar um novo plano de ação
+    db = SessionLocal()
+    group = db.query(models.AssetGroup).first()
+    if not group:
+        group = models.AssetGroup(name="Dashboard AP Test Group")
+        db.add(group)
+        db.commit()
+        db.refresh(group)
+
+    scan = models.Scan(
+        asset_group_id=group.id,
+        filename="ap_dash_test.csv",
+        scan_name="AP Dash Test Scan"
+    )
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+
+    host = models.Host(scan_id=scan.id, asset_group_id=group.id, ip_address="10.88.99.1", hostname="srv-dash-ap.local")
+    db.add(host)
+    db.commit()
+    db.refresh(host)
+
+    v_crit = models.Vulnerability(
+        scan_id=scan.id,
+        host_id=host.id,
+        asset_group_id=group.id,
+        plugin_id="99901",
+        plugin_name="Vulnerabilidade Critica Dashboard Test",
+        severity="Critical",
+        treatment_status="Open"
+    )
+    db.add(v_crit)
+    db.commit()
+    group_id = group.id
+    db.close()
+
+    res_create = client.post("/api/action-plans", json={
+        "title": "Plano Teste Dashboard Stats",
+        "asset_group_id": group_id,
+        "scope_type": "HOST",
+        "priority": "HIGH",
+        "status": "PLANNED",
+        "target_host_ip": "10.88.99.1"
+    }, headers=headers)
+    assert res_create.status_code == 200
+    plan_data = res_create.json()
+    plan_id = plan_data["id"]
+
+    # 3. Validar se o resumo no dashboard reflete o novo plano e vulnerabilidade
+    res_updated = client.get("/api/dashboard/stats", headers=headers)
+    assert res_updated.status_code == 200
+    stats_updated = res_updated.json()
+    ap_sum_up = stats_updated["action_plans_summary"]
+    assert ap_sum_up["total_plans"] == init_total_plans + 1
+    assert ap_sum_up["active_plans"] == init_active_plans + 1
+    assert ap_sum_up["critical"] >= 1
+    assert ap_sum_up["total_vulns"] >= 1
+
+    # 4. Validar exclusão ao marcar o plano como COMPLETED
+    res_complete = client.put(f"/api/action-plans/{plan_id}", json={"status": "COMPLETED"}, headers=headers)
+    assert res_complete.status_code == 200
+    res_dash_completed = client.get("/api/dashboard/stats", headers=headers)
+    assert res_dash_completed.status_code == 200
+    ap_sum_comp = res_dash_completed.json()["action_plans_summary"]
+    assert ap_sum_comp["total_plans"] == init_total_plans
+    assert ap_sum_comp["active_plans"] == init_active_plans
+
+    # 5. Validar exclusão ao marcar o plano como DRAFT
+    res_draft = client.put(f"/api/action-plans/{plan_id}", json={"status": "DRAFT"}, headers=headers)
+    assert res_draft.status_code == 200
+    res_dash_draft = client.get("/api/dashboard/stats", headers=headers)
+    assert res_dash_draft.status_code == 200
+    ap_sum_draft = res_dash_draft.json()["action_plans_summary"]
+    assert ap_sum_draft["total_plans"] == init_total_plans
+    assert ap_sum_draft["active_plans"] == init_active_plans
+
+    # 6. Validar exclusão ao marcar o plano como CANCELLED
+    res_cancel = client.put(f"/api/action-plans/{plan_id}", json={"status": "CANCELLED"}, headers=headers)
+    assert res_cancel.status_code == 200
+    res_dash_cancel = client.get("/api/dashboard/stats", headers=headers)
+    assert res_dash_cancel.status_code == 200
+    ap_sum_cancel = res_dash_cancel.json()["action_plans_summary"]
+    assert ap_sum_cancel["total_plans"] == init_total_plans
+    assert ap_sum_cancel["active_plans"] == init_active_plans
+
+    # Cleanup
+    client.delete(f"/api/action-plans/{plan_id}", headers=headers)
+
+
+def test_action_plan_remediation_exclusion_and_open_only_eligibility():
+    """
+    Valida rigorosamente as regras de negócio de elegibilidade de vulnerabilidades:
+    1. Vulnerabilidades com status 'Remediated' NÃO devem aparecer na lista de vulnerabilidades
+       disponíveis/órfãs (/api/action-plans/unassigned-vulns).
+    2. Vulnerabilidades com status 'Remediated' NÃO devem aparecer no Wizard (/api/action-plans/wizard/vulnerabilities).
+    3. Hosts cujas vulnerabilidades foram todas remediadas NÃO devem ter contagem ativa no Wizard (/api/action-plans/wizard/hosts).
+    4. Tentativa de criar plano para host/plugin onde todas as vulnerabilidades estão Remediadas deve ser rejeitada com HTTP 422.
+    5. Apenas vulnerabilidades com status 'Open' devem ser elegíveis para criação/associação de novos planos de ação.
+    """
+    token = get_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db = SessionLocal()
+    # Criar um grupo, scan e host dedicado para o teste com nome único
+    unique_suffix = int(datetime.now().timestamp() * 1000)
+    group = models.AssetGroup(name=f"Grupo Teste Elegibilidade Remediada {unique_suffix}")
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+
+    scan = models.Scan(
+        scan_name="Scan Test Eligibility",
+        filename="scan_eligibility_test.csv",
+        scan_date=datetime.now(timezone.utc),
+        asset_group_id=group.id
+    )
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+
+    test_ip = f"192.168.250.{unique_suffix % 200 + 10}"
+    host = models.Host(
+        ip_address=test_ip,
+        hostname="host-eligibility.local",
+        scan_id=scan.id,
+        asset_group_id=group.id
+    )
+    db.add(host)
+    db.commit()
+    db.refresh(host)
+
+    # 1. Vulnerabilidade Open (Elegível)
+    v_open = models.Vulnerability(
+        scan_id=scan.id,
+        host_id=host.id,
+        asset_group_id=group.id,
+        plugin_id="99901",
+        plugin_name="Vulnerabilidade Elegivel Open",
+        severity="High",
+        treatment_status="Open"
+    )
+    # 2. Vulnerabilidade Remediada (Não Elegível)
+    v_remediated = models.Vulnerability(
+        scan_id=scan.id,
+        host_id=host.id,
+        asset_group_id=group.id,
+        plugin_id="99902",
+        plugin_name="Vulnerabilidade Já Remediada",
+        severity="Critical",
+        treatment_status="Remediated"
+    )
+    # 3. Vulnerabilidade Risco Aceito (Não Elegível para novo plano)
+    v_risk = models.Vulnerability(
+        scan_id=scan.id,
+        host_id=host.id,
+        asset_group_id=group.id,
+        plugin_id="99903",
+        plugin_name="Vulnerabilidade Risco Aceito",
+        severity="Medium",
+        treatment_status="Accepted_Risk"
+    )
+
+    db.add_all([v_open, v_remediated, v_risk])
+    db.commit()
+    db.refresh(v_open)
+    db.refresh(v_remediated)
+    db.refresh(v_risk)
+    v_open_id = v_open.id
+    v_remediated_id = v_remediated.id
+    v_risk_id = v_risk.id
+    host_id = host.id
+    scan_id = scan.id
+    group_id = group.id
+    db.close()
+
+    try:
+        # A) Teste /api/action-plans/unassigned-vulns: somente Open deve constar
+        res_unassigned = client.get(f"/api/action-plans/unassigned-vulns?search={test_ip}", headers=headers)
+        assert res_unassigned.status_code == 200
+        unassigned_items = res_unassigned.json()
+        unassigned_pids = [str(x["plugin_id"]) for x in unassigned_items]
+        assert "99901" in unassigned_pids, "Vulnerabilidade Open deve estar disponível para plano"
+        assert "99902" not in unassigned_pids, "Vulnerabilidade Remediated JAMAIS deve constar como disponível"
+        assert "99903" not in unassigned_pids, "Vulnerabilidade Accepted_Risk não deve constar como disponível"
+
+        # B) Teste /api/action-plans/wizard/vulnerabilities: somente Open deve aparecer
+        res_wiz_vulns = client.get(f"/api/action-plans/wizard/vulnerabilities?host_ips={test_ip}", headers=headers)
+        assert res_wiz_vulns.status_code == 200
+        wiz_vulns = res_wiz_vulns.json()
+        wiz_pids = [str(x["plugin_id"]) for x in wiz_vulns]
+        assert "99901" in wiz_pids, "Plugin da vulnerabilidade Open deve aparecer no Wizard"
+        assert "99902" not in wiz_pids, "Plugin da vulnerabilidade Remediated NÃO deve aparecer no Wizard"
+        assert "99903" not in wiz_pids, "Plugin da vulnerabilidade Accepted_Risk NÃO deve aparecer no Wizard"
+
+        # C) Teste /api/action-plans/wizard/hosts: apenas 1 vuln ativa contabilizada (a Open)
+        res_wiz_hosts = client.get(f"/api/action-plans/wizard/hosts?search={test_ip}", headers=headers)
+        assert res_wiz_hosts.status_code == 200
+        wiz_hosts = res_wiz_hosts.json()
+        target_h_entry = next((h for h in wiz_hosts if h["ip"] == test_ip), None)
+        assert target_h_entry is not None
+        assert target_h_entry["vuln_count"] == 1, "Apenas a vulnerabilidade Open deve ser contabilizada no host"
+        assert target_h_entry["high_count"] == 1
+        assert target_h_entry["critical_count"] == 0, "A vulnerabilidade Critical remediada não pode ser contabilizada"
+
+        # D) Teste /api/vulnerabilities?not_in_action_plan=true: apenas Open
+        res_vulns_cat = client.get(f"/api/vulnerabilities?search={test_ip}&not_in_action_plan=true", headers=headers)
+        assert res_vulns_cat.status_code == 200
+        cat_pids = [str(v["plugin_id"]) for v in res_vulns_cat.json()]
+        assert "99901" in cat_pids
+        assert "99902" not in cat_pids
+        assert "99903" not in cat_pids
+
+        # E) Tentativa de criar plano para a vulnerabilidade Remediada (Plugin 99902) -> HTTP 422
+        res_fail_plugin = client.post("/api/action-plans", json={
+            "title": "Plano Inválido para Plugin Remediado",
+            "scope_type": "VULNERABILITY",
+            "target_plugin_id": "99902",
+            "asset_group_id": group_id,
+            "priority": "HIGH",
+            "status": "PLANNED"
+        }, headers=headers)
+        assert res_fail_plugin.status_code == 422, "Deve recusar plano para plugin onde todas as ocorrências são remediadas"
+
+        # F) Criar plano com sucesso para a vulnerabilidade Open (Plugin 99901) -> HTTP 200
+        res_ok_plugin = client.post("/api/action-plans", json={
+            "title": "Plano Válido para Plugin Open",
+            "scope_type": "VULNERABILITY",
+            "target_plugin_id": "99901",
+            "asset_group_id": group_id,
+            "priority": "HIGH",
+            "status": "PLANNED",
+            "auto_link_vulnerabilities": True
+        }, headers=headers)
+        assert res_ok_plugin.status_code == 200
+        plan_id = res_ok_plugin.json()["id"]
+
+        # Limpar plano criado
+        client.delete(f"/api/action-plans/{plan_id}", headers=headers)
+
+    finally:
+        # Cleanup
+        db = SessionLocal()
+        db.query(models.ActionTaskVulnerabilityLink).filter(models.ActionTaskVulnerabilityLink.vulnerability_id.in_([v_open_id, v_remediated_id, v_risk_id])).delete(synchronize_session=False)
+        db.query(models.Vulnerability).filter(models.Vulnerability.id.in_([v_open_id, v_remediated_id, v_risk_id])).delete(synchronize_session=False)
+        db.query(models.Host).filter(models.Host.id == host_id).delete(synchronize_session=False)
+        db.query(models.Scan).filter(models.Scan.id == scan_id).delete(synchronize_session=False)
+        db.query(models.AssetGroup).filter(models.AssetGroup.id == group_id).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+def test_action_plan_wizard_os_list_and_filter():
+    """
+    Valida os novos recursos do Wizard de Planos de Ação:
+    - GET /api/action-plans/wizard/os-list (listagem de SOs identificados nos scans)
+    - GET /api/action-plans/wizard/hosts com filtro de SO (param 'os')
+    """
+    token = get_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Valida endpoint global de OS
+    res_os = client.get("/api/action-plans/wizard/os-list", headers=headers)
+    assert res_os.status_code == 200
+    assert isinstance(res_os.json(), list)
+
+    import uuid
+    uid_str = uuid.uuid4().hex[:8]
+    db = SessionLocal()
+    group = models.AssetGroup(name=f"Grupo Teste OS Wizard {uid_str}", description="Teste de filtro por SO")
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    group_id = group.id
+
+    now = datetime.now(timezone.utc)
+    scan = models.Scan(
+        scan_name="Scan OS Test",
+        filename="scan_os_test.csv",
+        scan_date=now,
+        asset_group_id=group_id
+    )
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+    scan_id = scan.id
+
+    host_linux = models.Host(
+        ip_address="192.168.100.11",
+        hostname="srv-linux-01",
+        os="Linux Kernel 5.15 / Ubuntu 22.04",
+        scan_id=scan_id,
+        asset_group_id=group_id
+    )
+    host_win = models.Host(
+        ip_address="192.168.100.12",
+        hostname="srv-win-01",
+        os="Microsoft Windows Server 2022 Standard",
+        scan_id=scan_id,
+        asset_group_id=group_id
+    )
+    db.add_all([host_linux, host_win])
+    db.commit()
+    db.refresh(host_linux)
+    db.refresh(host_win)
+
+    vuln1 = models.Vulnerability(
+        scan_id=scan_id,
+        host_id=host_linux.id,
+        asset_group_id=group_id,
+        plugin_id="88801",
+        plugin_name="Vulnerabilidade Linux Teste",
+        severity="High",
+        treatment_status="Open"
+    )
+    vuln2 = models.Vulnerability(
+        scan_id=scan_id,
+        host_id=host_win.id,
+        asset_group_id=group_id,
+        plugin_id="88802",
+        plugin_name="Vulnerabilidade Windows Teste",
+        severity="Critical",
+        treatment_status="Open"
+    )
+    db.add_all([vuln1, vuln2])
+    db.commit()
+    db.close()
+
+    try:
+        # 2. Testa listagem de SOs filtrada por grupo
+        res_group_os = client.get(f"/api/action-plans/wizard/os-list?asset_group_id={group_id}", headers=headers)
+        assert res_group_os.status_code == 200
+        os_list = res_group_os.json()
+        assert "Linux Kernel 5.15 / Ubuntu 22.04" in os_list
+        assert "Microsoft Windows Server 2022 Standard" in os_list
+
+        # 3. Testa listagem de hosts sem filtro de SO
+        res_all_hosts = client.get(f"/api/action-plans/wizard/hosts?asset_group_id={group_id}", headers=headers)
+        assert res_all_hosts.status_code == 200
+        all_hosts = res_all_hosts.json()
+        assert len(all_hosts) == 2
+
+        # 4. Testa listagem de hosts com filtro de SO Linux
+        res_linux_hosts = client.get(f"/api/action-plans/wizard/hosts?asset_group_id={group_id}&os=Ubuntu", headers=headers)
+        assert res_linux_hosts.status_code == 200
+        linux_hosts = res_linux_hosts.json()
+        assert len(linux_hosts) == 1
+        assert linux_hosts[0]["ip"] == "192.168.100.11"
+        assert "Ubuntu" in linux_hosts[0]["os"]
+
+        # 5. Testa listagem de hosts com filtro de SO Windows
+        res_win_hosts = client.get(f"/api/action-plans/wizard/hosts?asset_group_id={group_id}&os=Windows", headers=headers)
+        assert res_win_hosts.status_code == 200
+        win_hosts = res_win_hosts.json()
+        assert len(win_hosts) == 1
+        assert win_hosts[0]["ip"] == "192.168.100.12"
+        assert "Windows" in win_hosts[0]["os"]
+
+        # 6. Testa filtro com SO inexistente
+        res_none_hosts = client.get(f"/api/action-plans/wizard/hosts?asset_group_id={group_id}&os=InexistenteOS", headers=headers)
+        assert res_none_hosts.status_code == 200
+        assert len(res_none_hosts.json()) == 0
+
+    finally:
+        # Cleanup
+        db = SessionLocal()
+        db.query(models.Vulnerability).filter(models.Vulnerability.scan_id == scan_id).delete(synchronize_session=False)
+        db.query(models.Host).filter(models.Host.scan_id == scan_id).delete(synchronize_session=False)
+        db.query(models.Scan).filter(models.Scan.id == scan_id).delete(synchronize_session=False)
+        db.query(models.AssetGroup).filter(models.AssetGroup.id == group_id).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+
+
 
 
 

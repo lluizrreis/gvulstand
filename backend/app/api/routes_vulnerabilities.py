@@ -183,7 +183,7 @@ def list_vulnerabilities(
             models.ActionPlan.status.in_(["PLANNED", "IN_PROGRESS"])
         ).distinct()
         query = query.filter(
-            models.Vulnerability.treatment_status.notin_(["Remediated", "Accepted_Risk"]),
+            models.Vulnerability.treatment_status.in_(["Open", "open"]),
             ~models.Vulnerability.id.in_(assigned_subq)
         )
     if search:

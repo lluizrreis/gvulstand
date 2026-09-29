@@ -210,72 +210,12 @@ async def upload_nessus_scan(
 
     # Post-Import Hook: Sincronização automática com Planos de Ação Ativos (ISO 27001 / ISO 9001 PDCA)
     try:
-        from app.services.asset_group_service import get_descendant_group_ids
-        active_plans = db.query(models.ActionPlan).filter(
-            models.ActionPlan.status.in_(["PLANNED", "IN_PROGRESS"])
-        ).all()
-
-        if active_plans:
-            new_vulns = db.query(models.Vulnerability).join(
-                models.Host, models.Vulnerability.host_id == models.Host.id
-            ).filter(
-                models.Vulnerability.scan_id == scan.id,
-                ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
-            ).all()
-
-            for plan in active_plans:
-                if plan.asset_group_id:
-                    plan_gids = get_descendant_group_ids(db, plan.asset_group_id, include_self=True)
-                    if asset_group_id not in plan_gids:
-                        continue
-
-                target_task = plan.tasks[0] if (plan.tasks and len(plan.tasks) > 0) else None
-                if not target_task:
-                    target_task = models.ActionTask(
-                        action_plan_id=plan.id,
-                        title="Remediação e Tratativa de Vulnerabilidades",
-                        order_index=0,
-                        status="TODO",
-                        assigned_user_id=plan.owner_user_id,
-                        due_date=plan.due_date
-                    )
-                    db.add(target_task)
-                    db.flush()
-
-                matched_vuln_ids = []
-                if plan.scope_type == "HOST":
-                    target_ip = plan.target_host.ip_address if plan.target_host else None
-                    if target_ip:
-                        for nv in new_vulns:
-                            if nv.host and nv.host.ip_address == target_ip:
-                                matched_vuln_ids.append(nv.id)
-
-                elif plan.scope_type == "VULNERABILITY":
-                    if plan.target_plugin_id:
-                        for nv in new_vulns:
-                            if nv.plugin_id == plan.target_plugin_id:
-                                matched_vuln_ids.append(nv.id)
-
-                elif plan.scope_type == "MATRIX_NN":
-                    scope_ips = set(h.host_ip for h in (plan.scope_hosts or []))
-                    scope_pids = set(p.plugin_id for p in (plan.scope_plugins or []))
-                    for nv in new_vulns:
-                        ip_match = (not scope_ips) or (nv.host and nv.host.ip_address in scope_ips)
-                        pid_match = (not scope_pids) or (nv.plugin_id in scope_pids)
-                        if ip_match and pid_match:
-                            matched_vuln_ids.append(nv.id)
-
-                if matched_vuln_ids:
-                    from app.api.routes_action_plans import link_vulns_to_task_with_precedence
-                    link_vulns_to_task_with_precedence(
-                        db=db,
-                        task=target_task,
-                        vuln_ids=matched_vuln_ids,
-                        current_username=current_user.username,
-                        is_host_scope=(plan.scope_type in ["HOST", "MATRIX_NN"])
-                    )
-
-            db.commit()
+        from app.api.routes_action_plans import sync_action_plans_on_scan_import
+        sync_action_plans_on_scan_import(
+            db=db,
+            scan=scan,
+            current_username=current_user.username
+        )
     except Exception as hook_err:
         import logging
         logging.getLogger(__name__).warning(f"Aviso no post-import hook de sincronização de planos: {hook_err}")

@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -75,10 +76,20 @@ def get_dashboard_stats(
             patch_advisory={"missing_patches": 0, "applied_patches": 0},
             cve_counts={"critical": 0, "high": 0, "medium": 0, "low": 0, "exploit": 0, "total": 0},
             treatment_breakdown={
+                "In_Action_Plan": {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
                 "In_Remediation": {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
                 "Accepted_Risk": {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
                 "Remediated": {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
                 "Open": {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
+            },
+            action_plans_summary={
+                "total_plans": 0,
+                "active_plans": 0,
+                "total_vulns": 0,
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0
             },
             asset_group_distribution=[],
             recent_scans=[]
@@ -126,15 +137,69 @@ def get_dashboard_stats(
     # Distribution by asset group (each group reflecting its latest scan)
     group_dist = []
     groups = db.query(models.AssetGroup).all()
+
+    # Precompute group hierarchy in memory to prevent recursive SQL queries
+    children_map = defaultdict(list)
     for g in groups:
-        g_scan_ids = get_latest_scan_ids(db, g.id)
+        if g.parent_id is not None:
+            children_map[g.parent_id].append(g.id)
+
+    descendants_map = {}
+    for g in groups:
+        descendants = [g.id]
+        queue = [g.id]
+        visited = {g.id}
+        while queue:
+            curr = queue.pop(0)
+            for child_id in children_map.get(curr, []):
+                if child_id not in visited:
+                    visited.add(child_id)
+                    descendants.append(child_id)
+                    queue.append(child_id)
+        descendants_map[g.id] = descendants
+
+    # Get latest scan ID per asset group in a single query
+    latest_scan_by_group = {}
+    for scan_id, ag_id in (
+        db.query(models.Scan.id, models.Scan.asset_group_id)
+        .filter(models.Scan.asset_group_id.isnot(None))
+        .order_by(models.Scan.scan_date.desc(), models.Scan.id.desc())
+        .all()
+    ):
+        if ag_id not in latest_scan_by_group:
+            latest_scan_by_group[ag_id] = scan_id
+
+    # Collect all relevant latest scan IDs across all groups
+    all_scan_ids = set(latest_scan_by_group.values())
+
+    # Aggregate vulnerability severity counts across all latest scans in a single query
+    scan_counts = defaultdict(lambda: defaultdict(int))
+    if all_scan_ids:
+        vuln_counts_q = (
+            db.query(
+                models.Vulnerability.scan_id,
+                models.Vulnerability.severity,
+                func.count(models.Vulnerability.id),
+            )
+            .filter(
+                models.Vulnerability.scan_id.in_(all_scan_ids),
+                models.Vulnerability.severity.in_(["Critical", "High", "Medium", "Low"]),
+            )
+        )
+        vuln_counts_q = apply_indicator_exclusion(vuln_counts_q, db)
+        for scan_id, severity, count in vuln_counts_q.group_by(
+            models.Vulnerability.scan_id,
+            models.Vulnerability.severity,
+        ).all():
+            scan_counts[scan_id][severity] = count
+
+    for g in groups:
+        g_scan_ids = {latest_scan_by_group[gid] for gid in descendants_map[g.id] if gid in latest_scan_by_group}
         if g_scan_ids:
-            g_vulns = db.query(models.Vulnerability).filter(models.Vulnerability.scan_id.in_(g_scan_ids))
-            g_vulns = apply_indicator_exclusion(g_vulns, db)
-            g_crit = g_vulns.filter(models.Vulnerability.severity == "Critical").count()
-            g_high = g_vulns.filter(models.Vulnerability.severity == "High").count()
-            g_med = g_vulns.filter(models.Vulnerability.severity == "Medium").count()
-            g_low = g_vulns.filter(models.Vulnerability.severity == "Low").count()
+            g_crit = sum(scan_counts[sid]["Critical"] for sid in g_scan_ids)
+            g_high = sum(scan_counts[sid]["High"] for sid in g_scan_ids)
+            g_med = sum(scan_counts[sid]["Medium"] for sid in g_scan_ids)
+            g_low = sum(scan_counts[sid]["Low"] for sid in g_scan_ids)
             g_total = g_crit + g_high + g_med + g_low
         else:
             g_crit = g_high = g_med = g_low = g_total = 0
@@ -151,7 +216,7 @@ def get_dashboard_stats(
 
     # Aging & Tenable Metrics Calculation
     actionable_vulns = vuln_q.filter(models.Vulnerability.severity != "Info").all()
-    group_slas = {g.id: g for g in db.query(models.AssetGroup).all()}
+    group_slas = {g.id: g for g in groups}
 
     aging_0_30 = 0
     aging_31_60 = 0
@@ -357,6 +422,67 @@ def get_dashboard_stats(
         out.asset_group_name = s.asset_group.name if s.asset_group else ""
         recent_scans.append(out)
 
+    # Action Plans Summary
+    from app.api.routes_action_plans import build_action_plan_group_filter
+
+    # Statuses excluídos do card de planos de ação: Concluídos (COMPLETED, DONE), Rascunho (DRAFT) e Cancelados (CANCELLED, CANCELED)
+    excluded_plan_statuses = [
+        "COMPLETED", "DONE", "DRAFT", "CANCELLED", "CANCELED",
+        "completed", "done", "draft", "cancelled", "canceled"
+    ]
+
+    ap_query = db.query(models.ActionPlan)
+    ap_filter = build_action_plan_group_filter(db, current_user, asset_group_id)
+    if ap_filter is not None:
+        ap_query = ap_query.filter(ap_filter)
+
+    # Filtrar estritamente planos ativos (não concluídos, não rascunho, não cancelados)
+    active_plans_filter = ~models.ActionPlan.status.in_(excluded_plan_statuses)
+    active_action_plans = ap_query.filter(active_plans_filter).count()
+
+    plan_vuln_ids_q = db.query(models.ActionTaskVulnerabilityLink.vulnerability_id).join(
+        models.ActionTask, models.ActionTaskVulnerabilityLink.action_task_id == models.ActionTask.id
+    ).join(
+        models.ActionPlan, models.ActionTask.action_plan_id == models.ActionPlan.id
+    )
+    if ap_filter is not None:
+        plan_vuln_ids_q = plan_vuln_ids_q.filter(ap_filter)
+
+    # Excluir planos com status excluído e tarefas já concluídas (DONE)
+    plan_vuln_ids_q = plan_vuln_ids_q.filter(
+        active_plans_filter,
+        ~models.ActionTask.status.in_(["DONE", "done"])
+    ).distinct()
+
+    if active_action_plans > 0:
+        plan_vulns = vuln_q.filter(
+            models.Vulnerability.id.in_(plan_vuln_ids_q),
+            models.Vulnerability.severity != "Info",
+            ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated"])
+        ).all()
+
+        plan_crit = sum(1 for v in plan_vulns if v.severity == "Critical")
+        plan_high = sum(1 for v in plan_vulns if v.severity == "High")
+        plan_med = sum(1 for v in plan_vulns if v.severity == "Medium")
+        plan_low = sum(1 for v in plan_vulns if v.severity == "Low")
+        plan_total_vulns = len(plan_vulns)
+    else:
+        plan_crit = 0
+        plan_high = 0
+        plan_med = 0
+        plan_low = 0
+        plan_total_vulns = 0
+
+    action_plans_summary = {
+        "total_plans": active_action_plans,
+        "active_plans": active_action_plans,
+        "total_vulns": plan_total_vulns,
+        "critical": plan_crit,
+        "high": plan_high,
+        "medium": plan_med,
+        "low": plan_low
+    }
+
     return schemas.DashboardStats(
         total_scans=total_scans,
         total_asset_groups=total_asset_groups,
@@ -417,6 +543,7 @@ def get_dashboard_stats(
             "total": len(cves_total)
         },
         treatment_breakdown=treatment_breakdown,
+        action_plans_summary=action_plans_summary,
         asset_group_distribution=group_dist,
         recent_scans=recent_scans
     )

@@ -864,7 +864,7 @@ def build_pdf():
     story.append(Paragraph("6.2 Requisitos de Rede e Portas de Comunicação", h2_style))
     port_data = [
         [Paragraph("<b>Porta / Protocolo</b>", th_style), Paragraph("<b>Origem</b>", th_style), Paragraph("<b>Destino</b>", th_style), Paragraph("<b>Finalidade Operacional</b>", th_style)],
-        [Paragraph("<code>8000/TCP (HTTP)</code>", td_bold_style), Paragraph("Analistas / Auditores / SOC", td_style), Paragraph("GvulStand App Container", td_style), Paragraph("Acesso à Interface Web SPA e endpoints da API REST FastAPI.", td_style)],
+        [Paragraph("<code>8888/TCP (HTTP)</code>", td_bold_style), Paragraph("Analistas / Auditores / SOC", td_style), Paragraph("GvulStand App Container", td_style), Paragraph("Acesso à Interface Web SPA e endpoints da API REST FastAPI.", td_style)],
         [Paragraph("<code>3306/TCP (MySQL)</code>", td_bold_style), Paragraph("GvulStand App Container", td_style), Paragraph("MariaDB Container", td_style), Paragraph("Conexão interna isolada na rede bridge 'gvulstand_net' para persistência.", td_style)]
     ]
     t_port = Table(port_data, colWidths=[110, 130, 130, 150])
@@ -881,7 +881,7 @@ def build_pdf():
 
     story.append(Paragraph("6.3 Guia de Execução Rápida", h2_style))
     story.append(Paragraph("<b>Opção 1 - Produção via Docker Compose (Recomendado):</b>", h3_style))
-    story.append(Paragraph("<code>docker compose up --build -d</code><br/>Acesso imediato no navegador em: <code>http://localhost:8000</code>", ParagraphStyle('CodeBox', fontName='Courier', fontSize=8, textColor=HexColor('#0F172A'), backColor=HexColor('#F1F5F9'), borderPadding=6, spaceAfter=8)))
+    story.append(Paragraph("<code>docker compose up --build -d</code><br/>Acesso imediato no navegador em: <code>http://localhost:8888</code>", ParagraphStyle('CodeBox', fontName='Courier', fontSize=8, textColor=HexColor('#0F172A'), backColor=HexColor('#F1F5F9'), borderPadding=6, spaceAfter=8)))
 
     story.append(Paragraph("<b>Opção 2 - Execução Local Instantânea (Python 3.12 + SQLite):</b>", h3_style))
     story.append(Paragraph("<code>pip install -r backend/requirements.txt && python run_local.py</code><br/><i>(No Windows, execute com um duplo-clique no arquivo start.bat)</i>", ParagraphStyle('CodeBox2', fontName='Courier', fontSize=8, textColor=HexColor('#0F172A'), backColor=HexColor('#F1F5F9'), borderPadding=6, spaceAfter=8)))
