@@ -171,12 +171,17 @@ def apply_indicator_exclusion(query, db: Session, model=models.Vulnerability):
 
     return query
 
-def get_system_timezone(db: Session) -> str:
+def get_system_timezone(db: Optional[Session] = None) -> str:
     """Retorna a string do fuso horário configurado no sistema."""
-    params = get_or_create_system_parameters(db)
-    return params.timezone or "America/Sao_Paulo"
+    if db is not None:
+        try:
+            params = get_or_create_system_parameters(db)
+            return params.timezone or "America/Sao_Paulo"
+        except Exception as e:
+            logger.warning(f"Erro ao obter fuso horário do sistema do banco: {e}")
+    return "America/Sao_Paulo"
 
-def get_system_zoneinfo(db: Session) -> zoneinfo.ZoneInfo:
+def get_system_zoneinfo(db: Optional[Session] = None) -> zoneinfo.ZoneInfo:
     """Retorna o objeto ZoneInfo configurado no sistema."""
     tz_str = get_system_timezone(db)
     try:
@@ -184,10 +189,33 @@ def get_system_zoneinfo(db: Session) -> zoneinfo.ZoneInfo:
     except Exception:
         return zoneinfo.ZoneInfo("America/Sao_Paulo")
 
-def format_datetime_in_system_tz(dt: Optional[datetime], db: Session, fmt: str = "%d/%m/%Y %H:%M:%S") -> str:
+def to_system_tz(dt: Optional[datetime], db: Optional[Session] = None) -> Optional[datetime]:
+    """
+    Converte datetime (assumindo UTC se não possuir tzinfo) para datetime com tzinfo
+    no fuso horário operacional configurado no sistema.
+    """
+    if not dt:
+        return None
+    try:
+        sys_tz = get_system_zoneinfo(db)
+        if dt.tzinfo is None:
+            dt_utc = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt_utc = dt
+        return dt_utc.astimezone(sys_tz)
+    except Exception as e:
+        logger.warning(f"Erro ao converter datetime para fuso do sistema: {e}")
+        return dt
+
+def format_datetime_in_system_tz(
+    dt: Optional[datetime],
+    db: Optional[Session] = None,
+    fmt: str = "%d/%m/%Y %H:%M:%S",
+    include_offset: bool = True
+) -> str:
     """
     Converte datetime (assumindo UTC se não possuir tzinfo) para o fuso horário
-    configurado no sistema e formata como string amigável com indicação do fuso.
+    configurado no sistema e formata como string amigável.
     """
     if not dt:
         return "-"
@@ -199,8 +227,10 @@ def format_datetime_in_system_tz(dt: Optional[datetime], db: Session, fmt: str =
         else:
             dt_utc = dt
         dt_local = dt_utc.astimezone(sys_tz)
-        offset_str = get_timezone_offset_str(sys_tz.key)
-        return f"{dt_local.strftime(fmt)} ({offset_str})"
+        if include_offset:
+            offset_str = get_timezone_offset_str(sys_tz.key)
+            return f"{dt_local.strftime(fmt)} ({offset_str})"
+        return dt_local.strftime(fmt)
     except Exception as e:
         logger.warning(f"Erro ao formatar data/hora no fuso do sistema: {e}")
         return dt.strftime(fmt) if hasattr(dt, 'strftime') else str(dt)

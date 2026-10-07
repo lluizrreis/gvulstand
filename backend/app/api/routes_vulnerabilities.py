@@ -9,7 +9,12 @@ from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, require_analyst_or_admin, check_user_group_access, get_user_allowed_group_ids
 from app.services.scan_service import get_latest_scan_ids
-from app.services.parameter_service import apply_indicator_exclusion, get_ignored_ids_set
+from app.services.parameter_service import (
+    apply_indicator_exclusion,
+    get_ignored_ids_set,
+    to_system_tz,
+    format_datetime_in_system_tz
+)
 
 router = APIRouter(prefix="/vulnerabilities", tags=["Gestão e Exploração de Vulnerabilidades"])
 
@@ -24,16 +29,27 @@ def calculate_aging_days(v: models.Vulnerability) -> int:
     diff = (now - ref).days
     return max(0, diff)
 
-def format_vuln_out(v: models.Vulnerability, ignored_ids: Optional[Set[str]] = None) -> schemas.VulnerabilityOut:
+def format_vuln_out(
+    v: models.Vulnerability,
+    ignored_ids: Optional[Set[str]] = None,
+    db: Optional[Session] = None
+) -> schemas.VulnerabilityOut:
     out = schemas.VulnerabilityOut.model_validate(v)
     out.host_ip = v.host.ip_address if v.host else ""
     out.host_name = v.host.hostname if v.host else ""
     out.asset_group_name = v.asset_group.name if v.asset_group else ""
     out.aging_days = calculate_aging_days(v)
     out.treated_by_username = v.treated_by_username
-    out.treated_at = v.treated_at
-    out.first_found = v.first_found
-    out.last_found = v.last_found
+    out.treated_at = to_system_tz(v.treated_at, db) if v.treated_at else None
+    if v.treated_at:
+        out.treated_at_formatted = format_datetime_in_system_tz(
+            v.treated_at, db, fmt="%d/%m/%Y, %H:%M:%S", include_offset=False
+        )
+    else:
+        out.treated_at_formatted = None
+    out.first_found = to_system_tz(v.first_found, db) if v.first_found else None
+    out.last_found = to_system_tz(v.last_found, db) if v.last_found else None
+    out.created_at = to_system_tz(v.created_at, db) if v.created_at else v.created_at
     cves = [c.strip() for c in re.findall(r"CVE-\d{4}-\d{4,7}", v.cve or "", re.IGNORECASE)] if v.cve else []
     out.cve_list = cves
     out.cve_count = len(cves)
@@ -222,7 +238,7 @@ def list_vulnerabilities(
         offset_val = (p - 1) * ps
         total_pages = max(1, math.ceil(total / ps))
         items_db = ordered_query.offset(offset_val).limit(ps).all()
-        formatted_items = [format_vuln_out(v, ignored_ids) for v in items_db]
+        formatted_items = [format_vuln_out(v, ignored_ids, db=db) for v in items_db]
         populate_vuln_active_plans(formatted_items, db)
         return schemas.PaginatedVulnerabilitiesOut(
             items=formatted_items,
@@ -234,7 +250,7 @@ def list_vulnerabilities(
 
     lim = limit if limit is not None else 100
     vulns = ordered_query.offset(offset).limit(lim).all()
-    formatted_vulns = [format_vuln_out(v, ignored_ids) for v in vulns]
+    formatted_vulns = [format_vuln_out(v, ignored_ids, db=db) for v in vulns]
     populate_vuln_active_plans(formatted_vulns, db)
     return formatted_vulns
 
@@ -440,7 +456,7 @@ def get_vulnerability(
     v = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Vulnerabilidade não encontrada.")
-    out = format_vuln_out(v, get_ignored_ids_set(db))
+    out = format_vuln_out(v, get_ignored_ids_set(db), db=db)
     populate_vuln_active_plans([out], db)
     return out
 
@@ -490,7 +506,7 @@ def update_vulnerability_treatment(
 
     db.commit()
     db.refresh(v)
-    return format_vuln_out(v, get_ignored_ids_set(db))
+    return format_vuln_out(v, get_ignored_ids_set(db), db=db)
 
 
 @router.get("/{vuln_id}/treatment-history", response_model=List[schemas.TreatmentHistoryOut])
@@ -515,7 +531,15 @@ def get_treatment_history(
         .order_by(models.VulnerabilityTreatmentHistory.changed_at.desc())
         .all()
     )
-    return history
+    result = []
+    for h in history:
+        item = schemas.TreatmentHistoryOut.model_validate(h)
+        item.changed_at = to_system_tz(h.changed_at, db)
+        item.changed_at_formatted = format_datetime_in_system_tz(
+            h.changed_at, db, fmt="%d/%m/%Y, %H:%M:%S", include_offset=False
+        )
+        result.append(item)
+    return result
 
 @router.post("/bulk-treatment", response_model=schemas.BulkTreatmentResponse)
 def bulk_update_vulnerability_treatment(

@@ -290,3 +290,79 @@ def test_apply_slas_to_all_groups():
     assert test_group["sla_high_days"] == 8
     assert test_group["sla_medium_days"] == 16
     assert test_group["sla_low_days"] == 32
+
+def test_vulnerability_treatment_timezone_behavior():
+    client = TestClient(app)
+    headers = get_auth_headers(client, "AdminParams", "Admin123")
+
+    # 1. Configura fuso horário para America/Sao_Paulo (UTC-03:00)
+    p_res = client.put("/api/parameters", json={
+        "timezone": "America/Sao_Paulo",
+        "sla_critical_days": 7,
+        "sla_high_days": 15,
+        "sla_medium_days": 30,
+        "sla_low_days": 60,
+        "ignored_vulnerability_ids": ""
+    }, headers=headers)
+    assert p_res.status_code == 200
+
+    # 2. Localiza vulnerabilidade de teste
+    vulns = client.get("/api/vulnerabilities", headers=headers).json()
+    assert len(vulns) > 0
+    vuln_id = vulns[0]["id"]
+
+    # 3. Trata a vulnerabilidade
+    patch_res = client.patch(f"/api/vulnerabilities/{vuln_id}/treatment", json={
+        "treatment_status": "In_Remediation",
+        "treatment_notes": "Aplicando correção no fuso de SP para auditoria"
+    }, headers=headers)
+    assert patch_res.status_code == 200
+    treated_vuln = patch_res.json()
+
+    # treated_at deve ter o offset -03:00 e treated_at_formatted preenchido
+    assert treated_vuln["treated_at"] is not None
+    assert "-03:00" in treated_vuln["treated_at"]
+    assert treated_vuln["treated_at_formatted"] is not None
+    assert "/" in treated_vuln["treated_at_formatted"]
+    assert ":" in treated_vuln["treated_at_formatted"]
+
+    # 4. Verifica histórico de auditoria
+    hist_res = client.get(f"/api/vulnerabilities/{vuln_id}/treatment-history", headers=headers)
+    assert hist_res.status_code == 200
+    history = hist_res.json()
+    assert len(history) > 0
+    latest = history[0]
+    assert "-03:00" in latest["changed_at"]
+    assert latest["changed_at_formatted"] is not None
+    assert "/" in latest["changed_at_formatted"]
+
+    # 5. Altera fuso para America/Manaus (UTC-04:00)
+    client.put("/api/parameters", json={
+        "timezone": "America/Manaus",
+        "sla_critical_days": 7,
+        "sla_high_days": 15,
+        "sla_medium_days": 30,
+        "sla_low_days": 60,
+        "ignored_vulnerability_ids": ""
+    }, headers=headers)
+
+    # Verifica se a consulta direta da vulnerabilidade reflete o novo fuso Manaus (-04:00)
+    get_res = client.get(f"/api/vulnerabilities/{vuln_id}", headers=headers)
+    assert get_res.status_code == 200
+    manaus_vuln = get_res.json()
+    assert "-04:00" in manaus_vuln["treated_at"]
+
+    # Verifica histórico no novo fuso (-04:00)
+    hist_manaus = client.get(f"/api/vulnerabilities/{vuln_id}/treatment-history", headers=headers).json()
+    assert "-04:00" in hist_manaus[0]["changed_at"]
+
+    # Restaura para America/Sao_Paulo
+    client.put("/api/parameters", json={
+        "timezone": "America/Sao_Paulo",
+        "sla_critical_days": 7,
+        "sla_high_days": 15,
+        "sla_medium_days": 30,
+        "sla_low_days": 60,
+        "ignored_vulnerability_ids": ""
+    }, headers=headers)
+

@@ -125,17 +125,60 @@ const App = {
     }
   },
 
+  getSystemTimezone() {
+    return this.state?.parameters?.timezone || localStorage.getItem('gvul_system_timezone') || 'America/Sao_Paulo';
+  },
+
   formatDateBR(dateVal) {
     if (!dateVal) return '-';
-    if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateVal)) {
-      const parts = dateVal.substring(0, 10).split('-');
+    if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateVal.trim())) {
+      const parts = dateVal.trim().split('-');
       return `${parts[2]}/${parts[1]}/${parts[0]}`;
     }
     try {
-      const d = new Date(dateVal);
-      const tz = this.state?.parameters?.timezone || 'America/Sao_Paulo';
-      return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR', { timeZone: tz });
+      let str = String(dateVal);
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(str)) {
+        str += 'Z';
+      }
+      const d = new Date(str);
+      if (isNaN(d.getTime())) return String(dateVal);
+      const tz = this.getSystemTimezone();
+      return new Intl.DateTimeFormat('pt-BR', {
+        timeZone: tz,
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }).format(d);
     } catch (e) {
+      return String(dateVal);
+    }
+  },
+
+  formatDateTime(dateVal, includeSeconds = true) {
+    if (!dateVal) return '-';
+    try {
+      let str = String(dateVal);
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(str)) {
+        str += 'Z';
+      }
+      const d = new Date(str);
+      if (isNaN(d.getTime())) return String(dateVal);
+      const tz = this.getSystemTimezone();
+      const options = {
+        timeZone: tz,
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      };
+      if (includeSeconds) {
+        options.second = '2-digit';
+      }
+      return new Intl.DateTimeFormat('pt-BR', options).format(d);
+    } catch (e) {
+      console.warn('Erro ao formatar data/hora:', e);
       return String(dateVal);
     }
   },
@@ -2721,7 +2764,7 @@ const App = {
             </div>
           </td>
           <td class="text-xs text-slate-300 font-mono">${this.formatDateBR(s.scan_date)}</td>
-          <td class="text-xs text-slate-400 font-mono">${s.created_at ? new Date(s.created_at).toLocaleString('pt-BR') : '-'}</td>
+          <td class="text-xs text-slate-400 font-mono">${s.created_at ? this.formatDateTime(s.created_at) : '-'}</td>
           <td class="text-right space-x-1">
             ${isAdmin ? `<button onclick="App.handleDeleteScan(${s.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 cursor-pointer" title="Excluir Scan">Excluir</button>` : `<span class="text-xs text-slate-500 italic">Somente Leitura</span>`}
           </td>
@@ -3868,7 +3911,7 @@ const App = {
       document.getElementById('modal-vuln-aging').textContent = `${v.aging_days || 0} dias`;
       const ffEl = document.getElementById('modal-vuln-firstfound');
       if (ffEl) {
-        ffEl.textContent = v.first_found ? new Date(v.first_found).toLocaleDateString('pt-BR') : '-';
+        ffEl.textContent = this.formatDateBR(v.first_found);
       }
       document.getElementById('modal-vuln-severity').textContent = v.severity;
       document.getElementById('modal-vuln-severity').className = `badge-${v.severity.toLowerCase()} px-2.5 py-0.5 rounded text-xs font-bold`;
@@ -3928,7 +3971,7 @@ const App = {
         auditUser.textContent = v.treated_by_username || 'Não registrada / Aberta';
       }
       if (auditDate) {
-        auditDate.textContent = v.treated_at ? new Date(v.treated_at).toLocaleString('pt-BR') : '-';
+        auditDate.textContent = v.treated_at_formatted || (v.treated_at ? this.formatDateTime(v.treated_at) : '-');
       }
 
       // Limpa erros e borda de erro do campo de nota
@@ -4039,7 +4082,7 @@ const App = {
       const auditUser = document.getElementById('modal-treatment-user');
       const auditDate = document.getElementById('modal-treatment-date');
       if (auditUser) auditUser.textContent = v.treated_by_username || '-';
-      if (auditDate) auditDate.textContent = v.treated_at ? new Date(v.treated_at).toLocaleString('pt-BR') : '-';
+      if (auditDate) auditDate.textContent = v.treated_at_formatted || (v.treated_at ? this.formatDateTime(v.treated_at) : '-');
 
       // Atualiza a lista de vulnerabilidades em background
       this.loadCurrentTabData();
@@ -4086,7 +4129,7 @@ const App = {
 
     listEl.innerHTML = history.map((entry, idx) => {
       const s = statusLabel[entry.treatment_status] || { label: entry.treatment_status, cls: 'bg-slate-100 text-slate-600 border-slate-300' };
-      const date = new Date(entry.changed_at).toLocaleString('pt-BR');
+      const date = entry.changed_at_formatted || this.formatDateTime(entry.changed_at);
       const isLatest = idx === 0;
       return `
         <div class="flex gap-2 p-2 rounded-lg border ${isLatest ? 'bg-sky-50/60 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800/50' : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800'} text-xs">
@@ -4723,6 +4766,9 @@ const App = {
         this.state.timezones = results[1];
       }
       this.state.parameters = params;
+      if (params && params.timezone) {
+        localStorage.setItem('gvul_system_timezone', params.timezone);
+      }
 
       // Populate Timezones select
       const tzSelect = document.getElementById('param-timezone');
@@ -4953,6 +4999,9 @@ const App = {
       });
 
       this.state.parameters = updated;
+      if (updated && updated.timezone) {
+        localStorage.setItem('gvul_system_timezone', updated.timezone);
+      }
 
       // Update Badges & Audit
       const tzBadge = document.getElementById('param-badge-tz-text');
@@ -5090,6 +5139,9 @@ const App = {
     try {
       const params = await API.getParameters();
       this.state.parameters = params;
+      if (params && params.timezone) {
+        localStorage.setItem('gvul_system_timezone', params.timezone);
+      }
     } catch (e) {
       // Non-critical on startup
     }
@@ -7047,7 +7099,7 @@ const App = {
       document.getElementById('plan-detail-progress-badge').textContent = `${pct.toFixed(0)}%`;
       document.getElementById('plan-detail-progress-bar').style.width = `${pct}%`;
       document.getElementById('plan-detail-tasks-ratio').textContent = `${p.completed_tasks} de ${p.total_tasks} etapas concluídas`;
-      document.getElementById('plan-detail-created-info').textContent = `Criado em: ${new Date(p.created_at).toLocaleString('pt-BR')}`;
+      document.getElementById('plan-detail-created-info').textContent = `Criado em: ${this.formatDateTime(p.created_at)}`;
 
       // Tasks List
       const tasksListEl = document.getElementById('plan-detail-tasks-list');
@@ -8499,7 +8551,7 @@ const App = {
           ? `<span class="inline-flex items-center space-x-1 text-teal-600 dark:text-teal-400 font-semibold"><i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i><span>CSV</span></span>`
           : `<span class="inline-flex items-center space-x-1 text-cyan-600 dark:text-cyan-400 font-semibold"><i data-lucide="cloud" class="w-3.5 h-3.5"></i><span>API</span></span>`;
 
-        const createdDate = j.queued_at ? new Date(j.queued_at).toLocaleString('pt-BR') : '-';
+        const createdDate = j.queued_at ? this.formatDateTime(j.queued_at) : '-';
         const durationText = j.duration_seconds > 0 ? `${j.duration_seconds}s` : (j.status === 'running' ? 'Em andamento' : '-');
 
         let actions = '';

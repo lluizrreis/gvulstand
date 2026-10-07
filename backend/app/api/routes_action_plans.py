@@ -1168,7 +1168,7 @@ def get_unassigned_vulnerabilities(
         models.Vulnerability.id.desc()
     ).offset(offset).limit(limit).all()
 
-    return [format_vuln_out(v, ignored_ids) for v in vulns]
+    return [format_vuln_out(v, ignored_ids, db=db) for v in vulns]
 
 
 @router.get("/wizard/os-list", response_model=List[str])

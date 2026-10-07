@@ -260,6 +260,7 @@ class VulnerabilityOut(BaseModel):
     treatment_notes: Optional[str] = None
     treated_by_username: Optional[str] = None
     treated_at: Optional[datetime] = None
+    treated_at_formatted: Optional[str] = None
     first_found: Optional[datetime] = None
     last_found: Optional[datetime] = None
     aging_days: Optional[int] = None
@@ -290,6 +291,7 @@ class TreatmentHistoryOut(BaseModel):
     treatment_notes: str
     changed_by_username: str
     changed_at: datetime
+    changed_at_formatted: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
