@@ -37,8 +37,8 @@ services:
       - DEFAULT_ADMIN_USERNAME=${DEFAULT_ADMIN_USERNAME:-Admin}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin}
       - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@gvulstand.local}
-    ports:
-      - "${APP_PORT:-8000}:8000"
+    #ports:
+      #- "${APP_PORT:-8000}:8000"
     volumes:
       - ./data/uploads:/app/data/uploads
       - ./frontend:/app/frontend
@@ -56,8 +56,17 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx.crt:/etc/nginx/certs/nginx.crt:ro
-      - ./nginx.key:/etc/nginx/certs/nginx.key:ro
+      - ./:/mnt/gvulstand
+      #- ./nginx.crt:/etc/nginx/certs/nginx.crt:ro
+      #- ./nginx.key:/etc/nginx/certs/nginx.key:ro
+    entrypoint: >
+      /bin/sh -c "
+      apk add --no-cache openssl &&
+      if [ ! -f /mnt/gvulstand/nginx.crt ]; then
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /mnt/gvulstand/nginx.key -out /mnt/gvulstand/nginx.crt -subj '/C=BR/ST=Estado/L=Cidade/O=Organizacao/CN=localhost';
+      fi;
+      nginx -g 'daemon off;'
+      "
     networks:
       - gvulstand_net
 
