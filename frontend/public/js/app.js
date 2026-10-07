@@ -339,6 +339,16 @@ const App = {
         this.closePlanOwnerDropdown();
       }
     });
+
+    // Fecha modal de alteração de senha ao pressionar ESC
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const pwdModal = document.getElementById('change-pwd-modal');
+        if (pwdModal && !pwdModal.classList.contains('hidden')) {
+          this.closeChangePasswordModal();
+        }
+      }
+    });
   },
 
   async checkSession() {
@@ -4599,42 +4609,93 @@ const App = {
   },
 
   openChangePasswordModal() {
-    if (this.state.currentTab !== 'settings') {
-      this.switchTab('settings');
-    }
     const oldPwd = document.getElementById('change-pwd-old');
     const newPwd = document.getElementById('change-pwd-new');
+    const confirmPwd = document.getElementById('change-pwd-confirm');
     if (oldPwd) oldPwd.value = '';
     if (newPwd) newPwd.value = '';
-    document.getElementById('change-pwd-error')?.classList.add('hidden');
-    const card = document.getElementById('change-pwd-modal');
-    if (card) {
-      card.classList.remove('hidden');
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setTimeout(() => oldPwd?.focus(), 400);
+    if (confirmPwd) confirmPwd.value = '';
+
+    const errEl = document.getElementById('change-pwd-error');
+    const errMsg = document.getElementById('change-pwd-error-msg');
+    if (errEl) errEl.classList.add('hidden');
+    if (errMsg) errMsg.textContent = '';
+
+    const modal = document.getElementById('change-pwd-modal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      setTimeout(() => oldPwd?.focus(), 150);
     }
     this.refreshIcons();
   },
 
   closeChangePasswordModal() {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const modal = document.getElementById('change-pwd-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+    }
   },
 
   async handleChangePassword(e) {
     if (e && e.preventDefault) e.preventDefault();
-    const old_password = document.getElementById('change-pwd-old').value;
-    const new_password = document.getElementById('change-pwd-new').value;
+    const oldPwdEl = document.getElementById('change-pwd-old');
+    const newPwdEl = document.getElementById('change-pwd-new');
+    const confirmPwdEl = document.getElementById('change-pwd-confirm');
     const errEl = document.getElementById('change-pwd-error');
+    const errMsg = document.getElementById('change-pwd-error-msg');
+    const btn = document.getElementById('btn-save-pwd');
+
+    const showError = (msg) => {
+      if (errMsg) errMsg.textContent = msg;
+      else if (errEl) errEl.textContent = msg;
+      if (errEl) errEl.classList.remove('hidden');
+      this.refreshIcons();
+    };
+
     if (errEl) errEl.classList.add('hidden');
+
+    const old_password = oldPwdEl ? oldPwdEl.value.trim() : '';
+    const new_password = newPwdEl ? newPwdEl.value : '';
+    const confirm_password = confirmPwdEl ? confirmPwdEl.value : '';
+
+    if (!old_password) {
+      showError('Informe sua senha atual.');
+      oldPwdEl?.focus();
+      return;
+    }
+    if (!new_password) {
+      showError('Informe a nova senha desejada.');
+      newPwdEl?.focus();
+      return;
+    }
+    if (new_password.length < 6) {
+      showError('A nova senha deve possuir no mínimo 6 caracteres.');
+      newPwdEl?.focus();
+      return;
+    }
+    if (confirmPwdEl && new_password !== confirm_password) {
+      showError('A confirmação da nova senha não confere com a nova senha digitada.');
+      confirmPwdEl?.focus();
+      return;
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Alterando...</span>';
+      this.refreshIcons();
+    }
 
     try {
       await API.changePassword(old_password, new_password);
       alert('Senha alterada com sucesso!');
       this.closeChangePasswordModal();
     } catch (err) {
-      if (errEl) {
-        errEl.textContent = err.message || 'Erro ao alterar senha.';
-        errEl.classList.remove('hidden');
+      showError(err.message || 'Erro ao alterar senha. Verifique se a senha atual está correta.');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i><span>Salvar Nova Senha</span>';
+        this.refreshIcons();
       }
     }
   },

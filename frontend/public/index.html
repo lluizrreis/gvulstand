@@ -40,7 +40,7 @@
           <i data-lucide="shield-check" class="w-9 h-9 text-white"></i>
         </div>
         <h1 class="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">GvulStand</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Gerenciamento de Vulnerabilidades • ISO 27000 & 9000</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Orquestração e Correção de Vulnerabilidades</p>
       </div>
 
       <!-- Login Card -->
@@ -85,8 +85,7 @@
         <span class="flex items-center space-x-1"><i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-500"></i><span>ISO/IEC 27001</span></span>
         <span>•</span>
         <span class="flex items-center space-x-1"><i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-500"></i><span>ISO 9001 PDCA</span></span>
-        <span>•</span>
-        <span class="flex items-center space-x-1"><i data-lucide="check-circle" class="w-3.5 h-3.5 text-teal-500"></i><span>Tenable Nessus CSV</span></span>
+       
       </div>
     </div>
   </div>
@@ -112,7 +111,7 @@
             <span class="text-base font-extrabold tracking-tight text-slate-900 dark:text-white">GvulStand</span>
             <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-teal-50 text-[#0F766E] border border-teal-200 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800">v1.0</span>
           </div>
-          <p class="text-[11px] text-slate-400 dark:text-slate-400 truncate">Governança de Vulnerabilidades</p>
+          <p class="text-[11px] text-slate-400 dark:text-slate-400 truncate">Gestão de Vulnerabilidades</p>
         </div>
       </div>
 
@@ -352,9 +351,7 @@
 
             <!-- Action buttons -->
             <div class="flex items-center space-x-1 ml-1">
-              <button onclick="App.openChangePasswordModal()" title="Alterar Senha" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
-                <i data-lucide="key" class="w-3.5 h-3.5"></i>
-              </button>
+              
               <button onclick="App.logout()" title="Encerrar Sessão" class="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer">
                 <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
               </button>
@@ -377,10 +374,7 @@
             <div>
               <h2 class="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center space-x-2">
                 <span>Visão Executiva</span>
-                <!-- <span class="text-xs font-bold px-2 py-0.5 rounded-md bg-teal-50 text-[#0F766E] border border-teal-200 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800">ISO 27001 & ISO 9001</span>
-                -->
               </h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Panorama consolidado do risco cibernético do parque tecnológico — Scan Produção e Governança Contínua.</p>
             </div>
             <div class="flex items-center space-x-3">
               <!-- <button onclick="App.navigate('vulnerabilities')" class="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold shadow-xs flex items-center space-x-2 transition cursor-pointer">
@@ -3959,11 +3953,7 @@
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Configure a autenticação corporativa via Active Directory (AD) ou servidor LDAP v3. O uso do LDAP é opcional e pode ser ativado a qualquer momento.</p>
           </div>
           <div class="flex flex-wrap items-center gap-3">
-            <a href="/static/DOCUMENTACAO_TECNICA_E_FUNCIONALIDADES.pdf" target="_blank" download="DOCUMENTACAO_TECNICA_E_FUNCIONALIDADES.pdf" title="Baixar Documentação Oficial do Sistema em PDF" class="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-[#0F766E] dark:text-teal-300 text-xs font-semibold shadow-xs flex items-center space-x-2 transition cursor-pointer">
-              <i data-lucide="file-text" class="w-4 h-4 text-[#0F766E] dark:text-teal-400"></i>
-              <span>Documentação Oficial (PDF)</span>
-            </a>
-            <span id="ldap-badge-status" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center space-x-1.5">
+              <span id="ldap-badge-status" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center space-x-1.5">
               <span class="w-2 h-2 rounded-full bg-slate-500"></span>
               <span>Carregando status...</span>
             </span>
@@ -3971,16 +3961,13 @@
         </div>
 
         <!-- Master Switch Card -->
-        <div class="glass-panel rounded-2xl p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B2E] space-y-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+        <div class="glass-panel rounded-2xl p-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B2E] space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between border-slate-200 dark:border-slate-800">
             <div class="space-y-1">
               <h3 class="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2">
                 <i data-lucide="power" class="w-4 h-4 text-purple-600 dark:text-purple-400"></i>
                 <span>Habilitar Autenticação & Consulta LDAP</span>
               </h3>
-              <p class="text-xs text-slate-500 dark:text-slate-400 max-w-2xl">
-                Ao ativar, usuários cadastrados como <strong>Rede / LDAP</strong> autenticarão diretamente no domínio corporativo via sAMAccountName, e o sistema consultará o Active Directory para validação e busca de dados.
-              </p>
             </div>
             <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
               <input type="checkbox" id="ldap-enabled-toggle" onchange="App.handleLdapToggleChange()" class="sr-only peer">
@@ -3988,27 +3975,7 @@
             </label>
           </div>
 
-          <!-- Informative Alert Box -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 space-y-1">
-              <div class="font-semibold text-teal-700 dark:text-sky-400 flex items-center space-x-1.5">
-                <i data-lucide="shield-check" class="w-4 h-4"></i>
-                <span>Autenticação Híbrida & Resiliência</span>
-              </div>
-              <p class="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
-                Usuários cadastrados manualmente continuam acessando com usuário e senha locais independentemente do status do LDAP. Administradores locais mantêm acesso ininterrupto.
-              </p>
-            </div>
-            <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 space-y-1">
-              <div class="font-semibold text-purple-700 dark:text-purple-400 flex items-center space-x-1.5">
-                <i data-lucide="user-check" class="w-4 h-4"></i>
-                <span>Vínculo por sAMAccountName</span>
-              </div>
-              <p class="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
-                Na Gestão de Usuários, o administrador cadastra contas de rede informando o <code>sAMAccountName</code>, aproveitando nome e e-mail do AD e definindo a role manualmente.
-              </p>
-            </div>
-          </div>
+
         </div>
 
         <!-- LDAP Configuration Form -->
@@ -4460,39 +4427,6 @@
               </button>
             </div>
         </form>
-
-        <!-- Card de Segurança da Conta: Alterar Minha Senha -->
-        <div id="change-pwd-modal" class="glass-panel rounded-2xl p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B2E] shadow-xl space-y-4">
-          <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-            <div class="flex items-center space-x-2.5">
-              <div class="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-[#0F766E] dark:text-teal-400 border border-teal-200/80 dark:border-teal-700/50">
-                <i data-lucide="key-round" class="w-5 h-5"></i>
-              </div>
-              <div>
-                <h3 class="text-base font-bold text-slate-900 dark:text-slate-100">Segurança da Conta & Alteração de Senha</h3>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Atualize sua senha de acesso ao portal Gvulstand</p>
-              </div>
-            </div>
-          </div>
-
-          <div id="change-pwd-error" class="hidden p-3 rounded-xl bg-rose-50 dark:bg-rose-500/15 border border-rose-200 dark:border-slate-800 text-rose-700 dark:text-rose-300 text-xs"></div>
-
-          <form id="change-pwd-form" onsubmit="App.handleChangePassword(event)" class="space-y-4 text-xs max-w-md">
-            <div>
-              <label class="block font-semibold text-slate-600 dark:text-slate-400 uppercase mb-1">Senha Atual *</label>
-              <input type="password" id="change-pwd-old" required class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-teal-500">
-            </div>
-
-            <div>
-              <label class="block font-semibold text-slate-600 dark:text-slate-400 uppercase mb-1">Nova Senha *</label>
-              <input type="password" id="change-pwd-new" required class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-teal-500">
-            </div>
-
-            <div class="pt-2">
-              <button type="submit" class="px-5 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-600 text-white font-semibold text-xs shadow-md shadow-teal-900/25 cursor-pointer transition">Salvar Nova Senha</button>
-            </div>
-          </form>
-        </div>
       </section>
 
       <!-- ==================================================== -->
@@ -4597,50 +4531,8 @@
             </div>
           </div>
 
-          <!-- Documentation & Guide Cards -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="glass-panel p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B2E] space-y-3">
-              <div class="flex items-center space-x-2.5 text-blue-600 dark:text-blue-400 font-bold text-sm">
-                <i data-lucide="shield" class="w-5 h-5"></i>
-                <span>Como integrar com Tenable (IO / SC / Nessus)</span>
-              </div>
-              <ul class="text-xs text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">
-                <li class="flex items-start space-x-2">
-                  <span class="text-blue-500 font-bold">•</span>
-                  <span><strong>Tenable.io:</strong> Endpoint padrão <code>https://cloud.tenable.com</code>. Chaves em <em>Settings &gt; My Account &gt; API Keys</em>.</span>
-                </li>
-                <li class="flex items-start space-x-2">
-                  <span class="text-blue-500 font-bold">•</span>
-                  <span><strong>Tenable.sc / SecurityCenter:</strong> Insira a URL completa (ex: <code>https://tenable-sc.empresa.local:443</code>). Desmarque SSL para autoassinados.</span>
-                </li>
-                <li class="flex items-start space-x-2">
-                  <span class="text-blue-500 font-bold">•</span>
-                  <span><strong>Nessus Professional:</strong> URL local (ex: <code>https://192.168.1.50:8834</code>) e API keys com permissões de leitura.</span>
-                </li>
-              </ul>
-            </div>
-
-            <div class="glass-panel p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B2E] space-y-3">
-              <div class="flex items-center space-x-2.5 text-sky-600 dark:text-sky-400 font-bold text-sm">
-                <i data-lucide="monitor" class="w-5 h-5"></i>
-                <span>Como integrar com Microsoft Defender (MDVM)</span>
-              </div>
-              <ul class="text-xs text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">
-                <li class="flex items-start space-x-2">
-                  <span class="text-sky-500 font-bold">•</span>
-                  <span><strong>App Registration (Entra ID):</strong> Anote o <em>Tenant ID</em> e o <em>Application (Client) ID</em>.</span>
-                </li>
-                <li class="flex items-start space-x-2">
-                  <span class="text-sky-500 font-bold">•</span>
-                  <span><strong>Client Secret:</strong> Crie um segredo em <em>Certificates &amp; Secrets</em>.</span>
-                </li>
-                <li class="flex items-start space-x-2">
-                  <span class="text-sky-500 font-bold">•</span>
-                  <span><strong>Permissões de API:</strong> Application permissions <code>Vulnerability.Read.All</code> e <code>Device.Read.All</code> com Admin Consent.</span>
-                </li>
-              </ul>
-            </div>
-          </div>
+          
+          
         </div>
 
         <!-- 2. VIEW FRAME CHEIO: CRIAÇÃO / EDIÇÃO DE CONEXÃO DE SCANNER -->
@@ -4990,16 +4882,73 @@
     </main>
 
     <!-- Global Footer -->
-    <footer class="bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800/80 py-4 text-center text-xs text-slate-500 mt-auto">
-      <div class="w-[90%] mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <span>GvulStand &copy; 2026 • Vulnerability Management System</span>
-        <span class="text-slate-400">Compatível com Nessus CSV • Alinhado a ISO/IEC 27001 & ISO 9001</span>
-      </div>
-    </footer>
+    <footer class="w-full py-4 text-center text-sm text-gray-600 bg-gray-50 border-t border-gray-200">
+  <p>
+    <span class="font-semibold">GVulStand</span> &copy; 2026 . 
+    Este software é livre e de código aberto sob a licença 
+    <a href="https://github.com/lluizrreis/gvulstand/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline font-medium">GPLv3</a>. 
+    Código disponível no 
+    <a href="https://github.com/lluizrreis/gvulstand" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline font-medium">GitHub</a>.
+  </p>
+</footer>
 
     </div>
   </div>
 
+  <!-- Modal Global de Alteração de Senha -->
+  <div id="change-pwd-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onclick="if(event.target === this) App.closeChangePasswordModal()">
+    <div class="relative w-full max-w-md glass-panel rounded-2xl p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B2E] shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+      <!-- Top Header do Modal -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+        <div class="flex items-center space-x-2.5">
+          <div class="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-[#0F766E] dark:text-teal-400 border border-teal-200/80 dark:border-teal-700/50">
+            <i data-lucide="key-round" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900 dark:text-slate-100">Segurança da Conta & Alteração de Senha</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Atualize sua senha de acesso ao portal Gvulstand</p>
+          </div>
+        </div>
+        <button type="button" onclick="App.closeChangePasswordModal()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer" title="Fechar">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Alerta de Erro -->
+      <div id="change-pwd-error" class="hidden p-3 rounded-xl bg-rose-50 dark:bg-rose-500/15 border border-rose-200 dark:border-rose-800/40 text-rose-700 dark:text-rose-300 text-xs flex items-center space-x-2">
+        <i data-lucide="alert-circle" class="w-4 h-4 shrink-0 text-rose-500"></i>
+        <span id="change-pwd-error-msg"></span>
+      </div>
+
+      <!-- Formulário de Alteração de Senha -->
+      <form id="change-pwd-form" onsubmit="App.handleChangePassword(event); return false;" class="space-y-4 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-600 dark:text-slate-400 uppercase mb-1">Senha Atual *</label>
+          <input type="password" id="change-pwd-old" required placeholder="Digite sua senha atual" autocomplete="current-password" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-teal-500">
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-600 dark:text-slate-400 uppercase mb-1">Nova Senha *</label>
+          <input type="password" id="change-pwd-new" required placeholder="Digite a nova senha desejada" autocomplete="new-password" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-teal-500">
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-600 dark:text-slate-400 uppercase mb-1">Confirmar Nova Senha *</label>
+          <input type="password" id="change-pwd-confirm" required placeholder="Confirme a nova senha" autocomplete="new-password" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-teal-500">
+        </div>
+
+        <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+          <button type="button" onclick="App.closeChangePasswordModal()" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition cursor-pointer">
+            Cancelar
+          </button>
+          <button type="submit" id="btn-save-pwd" class="px-5 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-600 text-white font-semibold text-xs shadow-md shadow-teal-900/25 cursor-pointer transition flex items-center space-x-1.5">
+            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+            <span>Salvar Nova Senha</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Floating Progress Card (Ao disparar upload de CSV ou Sincronização API) -->
   <div id="floating-job-progress" class="hidden fixed bottom-6 right-6 z-50 max-w-sm w-full glass-panel rounded-2xl p-4 border border-teal-500/30 bg-white/95 dark:bg-[#131B2E]/95 shadow-2xl backdrop-blur-md transition-all duration-300">
@@ -5037,9 +4986,9 @@
 
 
   <!-- Application Scripts -->
-  <script src="/static/js/api.js?v=20261007_v62"></script>
-  <script src="/static/js/charts.js?v=20261007_v62"></script>
-  <script src="/static/js/app.js?v=20261007_v62"></script>
+  <script src="/static/js/api.js?v=20261007_v63"></script>
+  <script src="/static/js/charts.js?v=20261007_v63"></script>
+  <script src="/static/js/app.js?v=20261007_v63"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       if (window.lucide && typeof lucide.createIcons === 'function') {
