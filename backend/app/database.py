@@ -50,16 +50,16 @@ def init_db():
         if "vulnerabilities" in inspector.get_table_names():
             vuln_cols = [col["name"] for col in inspector.get_columns("vulnerabilities")]
             missing_vuln_cols = {
-                "exploited_by_malware": "BOOLEAN DEFAULT 0",
+                "exploited_by_malware": "BOOLEAN DEFAULT FALSE",
                 "stig_severity": "VARCHAR(50)",
                 "risk_factor": "VARCHAR(50)",
                 "vpr": "FLOAT",
-                "patch_available": "BOOLEAN DEFAULT 0",
+                "patch_available": "BOOLEAN DEFAULT FALSE",
                 "plugin_type": "VARCHAR(50)",
-                "first_found": "DATETIME",
-                "last_found": "DATETIME",
+                "first_found": "TIMESTAMP",
+                "last_found": "TIMESTAMP",
                 "treated_by_username": "VARCHAR(100)",
-                "treated_at": "DATETIME"
+                "treated_at": "TIMESTAMP"
             }
             with engine.connect() as conn:
                 for col_name, col_type in missing_vuln_cols.items():
@@ -78,11 +78,43 @@ def init_db():
                     logger.info("Migrating schema: adding sam_account_name column to users table...")
                     conn.execute(text("ALTER TABLE users ADD COLUMN sam_account_name VARCHAR(100)"))
                     conn.commit()
+        if "scanner_integrations" in inspector.get_table_names():
+            with engine.connect() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE scanner_integrations ALTER COLUMN access_key TYPE TEXT"))
+                    conn.execute(text("ALTER TABLE scanner_integrations ALTER COLUMN secret_key TYPE TEXT"))
+                    conn.execute(text("ALTER TABLE scanner_integrations ALTER COLUMN client_secret TYPE TEXT"))
+                    conn.commit()
+                except Exception as e:
+                    logger.debug(f"scanner_integrations column type alter: {e}")
     except Exception as e:
         logger.warning(f"Note on migration check: {e}")
     
     db: Session = SessionLocal()
     try:
+        # Check and migrate plaintext credentials in scanner_integrations to Fernet encryption
+        try:
+            from app.crypto_utils import is_encrypted, encrypt_secret
+            integrations = db.query(models.ScannerIntegration).all()
+            migrated_count = 0
+            for integ in integrations:
+                modified = False
+                if integ.access_key and not is_encrypted(integ.access_key):
+                    integ.access_key = encrypt_secret(integ.access_key.strip())
+                    modified = True
+                if integ.secret_key and not is_encrypted(integ.secret_key):
+                    integ.secret_key = encrypt_secret(integ.secret_key.strip())
+                    modified = True
+                if integ.client_secret and not is_encrypted(integ.client_secret):
+                    integ.client_secret = encrypt_secret(integ.client_secret.strip())
+                    modified = True
+                if modified:
+                    migrated_count += 1
+            if migrated_count > 0:
+                db.commit()
+                logger.info(f"Criptografadas com sucesso as credenciais em {migrated_count} integração(ões) de scanner.")
+        except Exception as mig_err:
+            logger.warning(f"Erro ao verificar/migrar credenciais de scanners para Fernet: {mig_err}")
         # Check and initialize default LDAP config
         ldap_cfg = db.query(models.LdapConfig).filter(models.LdapConfig.id == 1).first()
         if not ldap_cfg:
@@ -209,6 +241,20 @@ def init_db():
             db.add_all(default_groups)
             db.commit()
             logger.info("Default asset groups created.")
+
+        # Clean up any jobs that were orphaned in 'running' state due to container restart
+        try:
+            orphaned_jobs = db.query(models.ImportJob).filter(models.ImportJob.status == "running").all()
+            for oj in orphaned_jobs:
+                oj.status = "failed"
+                oj.progress_message = "Processamento interrompido por reinicialização do servidor/container."
+                oj.error_message = "Servidor reiniciado enquanto a tarefa estava em execução."
+                oj.completed_at = models.utc_now()
+            if orphaned_jobs:
+                db.commit()
+                logger.info(f"Limpeza de inicialização: {len(orphaned_jobs)} tarefas órfãs marcadas como falhas.")
+        except Exception as job_clean_err:
+            logger.warning(f"Aviso ao verificar jobs órfãos: {job_clean_err}")
     except Exception as e:
         logger.error(f"Error during database initialization: {e}")
         db.rollback()

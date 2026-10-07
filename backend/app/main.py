@@ -18,15 +18,42 @@ from app.api import (
     routes_ldap,
     routes_reports,
     routes_parameters,
-    routes_action_plans
+    routes_action_plans,
+    routes_integrations,
+    routes_jobs
 )
+import asyncio
+from app.database import SessionLocal
+from app.services.integrations.scheduler import check_and_run_scheduled_syncs
+from app.services.job_queue import job_queue_worker
+
+async def background_scheduler():
+    while True:
+        try:
+            await asyncio.sleep(60)
+            db = SessionLocal()
+            try:
+                check_and_run_scheduled_syncs(db)
+            finally:
+                db.close()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: initialize database tables and seed default admin user
     init_db()
+    worker_task = asyncio.create_task(job_queue_worker())
+    sched_task = asyncio.create_task(background_scheduler())
     yield
-    # Shutdown logic if needed
+    worker_task.cancel()
+    sched_task.cancel()
+    try:
+        await asyncio.gather(worker_task, sched_task, return_exceptions=True)
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -58,6 +85,8 @@ app.include_router(routes_reports.router, prefix=api_prefix)
 app.include_router(routes_parameters.router, prefix=api_prefix)
 app.include_router(routes_action_plans.router, prefix=api_prefix)
 app.include_router(routes_action_plans.router, prefix="/api/v1")
+app.include_router(routes_integrations.router, prefix=f"{api_prefix}/integrations", tags=["Integrations"])
+app.include_router(routes_jobs.router, prefix=api_prefix)
 
 @app.get(f"{api_prefix}/health", tags=["Health"])
 def health_check():

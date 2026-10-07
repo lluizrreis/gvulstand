@@ -1,20 +1,19 @@
 services:
-  # MariaDB Database Service
-  mariadb:
-    image: mariadb:11.4
-    container_name: gvulstand_db
+  # PostgreSQL Database Service (High-Performance ACID & Analytics)
+  postgres:
+    image: postgres:16-alpine
+    container_name: gvulstand_pg
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-gvulstand}
-      MYSQL_USER: ${MYSQL_USER:-gvuluser}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-gvulstand}
+      POSTGRES_USER: ${POSTGRES_USER:-gvuluser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "3306:3306"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - mariadb_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gvuluser} -d ${POSTGRES_DB:-gvulstand}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,10 +29,10 @@ services:
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/backend/app
     depends_on:
-      mariadb:
+      postgres:
         condition: service_healthy
     environment:
-      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-gvuluser}:${MYSQL_PASSWORD}@mariadb:3306/${MYSQL_DATABASE:-gvulstand}?charset=utf8mb4
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-gvuluser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gvulstand}
       - SECRET_KEY=${SECRET_KEY}
       - DEFAULT_ADMIN_USERNAME=${DEFAULT_ADMIN_USERNAME:-Admin}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin}
@@ -44,12 +43,14 @@ services:
       - ./data/uploads:/app/data/uploads
       - ./frontend:/app/frontend
       - ./backend/app:/app/backend/app
+      - ./backend/tests:/app/backend/tests
     networks:
       - gvulstand_net
 
 volumes:
-  mariadb_data:
-    driver: local
+  postgres_data:
+    name: gvulstand_postgres_data
+    external: true
 
 networks:
   gvulstand_net:

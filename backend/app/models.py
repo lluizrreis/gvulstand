@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import Column, Integer, String, Text, Boolean, Float, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -44,6 +45,8 @@ class AssetGroup(Base):
     hosts = relationship("Host", back_populates="asset_group", cascade="all, delete-orphan")
     vulnerabilities = relationship("Vulnerability", back_populates="asset_group", cascade="all, delete-orphan")
     user_permissions = relationship("UserAssetGroup", back_populates="asset_group", cascade="all, delete-orphan")
+    scanner_integrations = relationship("ScannerIntegration", back_populates="asset_group", cascade="all, delete-orphan")
+    import_jobs = relationship("ImportJob", back_populates="asset_group", cascade="all, delete-orphan")
 
 class UserAssetGroup(Base):
     __tablename__ = "user_asset_groups"
@@ -394,4 +397,120 @@ class ActionPlanPlugin(Base):
     __table_args__ = (
         Index("ix_plan_plugin_unique", "action_plan_id", "plugin_id", unique=True),
     )
+
+
+class ScannerIntegration(Base):
+    """
+    Configuração de integração com scanners de vulnerabilidades via API
+    (Tenable.io, Tenable.sc, Nessus Professional e Microsoft Defender for Endpoint / MDVM).
+    Permite agendamento periódico de importação por Grupo de Ativos.
+    """
+    __tablename__ = "scanner_integrations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    asset_group_id = Column(Integer, ForeignKey("asset_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(150), nullable=False)
+    scanner_type = Column(String(50), nullable=False)  # 'tenable_io', 'tenable_sc', 'tenable_nessus_pro', 'ms_defender'
+    is_enabled = Column(Boolean, default=True, nullable=False)
+
+    # API Connection Settings
+    api_endpoint = Column(String(255), nullable=True)  # ex: https://cloud.tenable.com ou https://api.securitycenter.microsoft.com
+    verify_ssl = Column(Boolean, default=True, nullable=False)
+    auth_type = Column(String(50), default="api_keys", nullable=False)  # 'api_keys', 'oauth_client_credentials'
+
+    # Tenable / OpenVAS API Credentials (cifrados com Fernet)
+    access_key = Column(Text, nullable=True)
+    secret_key = Column(Text, nullable=True)
+
+    # Microsoft Defender Credentials (Entra ID)
+    tenant_id = Column(String(100), nullable=True)
+    client_id = Column(String(100), nullable=True)
+    client_secret = Column(Text, nullable=True)
+
+    def get_decrypted_access_key(self) -> Optional[str]:
+        from app.crypto_utils import safe_decrypt_secret
+        return safe_decrypt_secret(self.access_key)
+
+    def get_decrypted_secret_key(self) -> Optional[str]:
+        from app.crypto_utils import safe_decrypt_secret
+        return safe_decrypt_secret(self.secret_key)
+
+    def get_decrypted_client_secret(self) -> Optional[str]:
+        from app.crypto_utils import safe_decrypt_secret
+        return safe_decrypt_secret(self.client_secret)
+
+    # Filtering / Scope (ex: tag específica no Tenable ou machine group no Defender)
+    target_scope_filter = Column(Text, nullable=True)
+
+    # Scheduling
+    schedule_type = Column(String(30), default="manual", nullable=False)  # 'manual', 'interval', 'daily', 'weekly'
+    interval_hours = Column(Integer, default=24, nullable=False)
+    schedule_time = Column(String(10), default="02:00", nullable=True)   # HH:MM (24h)
+    schedule_days = Column(String(50), default="1,2,3,4,5", nullable=True)  # Dias da semana (1=Segunda, 7=Domingo)
+
+    # Execution & Telemetry
+    last_sync_status = Column(String(30), default="idle", nullable=False)  # 'idle', 'running', 'success', 'failed'
+    last_sync_at = Column(DateTime, nullable=True)
+    last_sync_message = Column(Text, nullable=True)
+    last_synced_scan_id = Column(Integer, ForeignKey("scans.id", ondelete="SET NULL"), nullable=True)
+    vulnerabilities_imported_count = Column(Integer, default=0, nullable=False)
+    hosts_imported_count = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    asset_group = relationship("AssetGroup", back_populates="scanner_integrations")
+    last_synced_scan = relationship("Scan")
+
+
+class ImportJob(Base):
+    """
+    Fila de Trabalhos e Histórico de Importações (Opção A: Job Queue Nativa).
+    Gerencia uploads assíncronos de CSV do Nessus e sincronizações via API (Tenable/Defender).
+    Garante controle de concorrência, execução em ordem (FIFO) e telemetria de progresso em tempo real.
+    """
+    __tablename__ = "import_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_type = Column(String(50), nullable=False, index=True)  # 'csv_upload', 'api_sync'
+    status = Column(String(30), default="queued", nullable=False, index=True)  # 'queued', 'running', 'completed', 'failed', 'cancelled'
+    progress_percent = Column(Integer, default=0, nullable=False)
+    progress_message = Column(Text, nullable=True)
+
+    asset_group_id = Column(Integer, ForeignKey("asset_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_by_username = Column(String(100), nullable=False)
+
+    integration_id = Column(Integer, ForeignKey("scanner_integrations.id", ondelete="SET NULL"), nullable=True, index=True)
+    scan_id = Column(Integer, ForeignKey("scans.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    # Parâmetros de importação CSV
+    filename = Column(String(255), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    file_size_bytes = Column(Integer, default=0)
+    scan_name = Column(String(150), nullable=True)
+    scan_type = Column(String(50), default="baseline", nullable=False)
+    scan_date = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    # Métricas de execução
+    hosts_count = Column(Integer, default=0, nullable=False)
+    findings_count = Column(Integer, default=0, nullable=False)
+    result_summary = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    duration_seconds = Column(Float, default=0.0, nullable=False)
+
+    queued_at = Column(DateTime, default=utc_now, nullable=False, index=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    asset_group = relationship("AssetGroup", back_populates="import_jobs")
+    created_by_user = relationship("User")
+    integration = relationship("ScannerIntegration")
+    scan = relationship("Scan")
+
+    __table_args__ = (
+        Index("ix_import_jobs_status_queued", "status", "queued_at"),
+    )
+
 

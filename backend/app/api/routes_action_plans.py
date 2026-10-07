@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, or_, and_, literal, case
+from sqlalchemy import func, desc, or_, and_, literal, case, text
 from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, require_analyst_or_admin, check_user_group_access, get_user_allowed_group_ids
@@ -623,18 +623,24 @@ def sync_action_plans_on_scan_import(
     now = utc_now()
     from app.services.asset_group_service import get_descendant_group_ids
 
+    # 0. Prevenção de concorrência: lock consultivo de transação por grupo de ativos no PostgreSQL
+    if scan.asset_group_id and db.bind and getattr(db.bind.dialect, "name", "") == "postgresql":
+        try:
+            db.execute(text("SELECT pg_advisory_xact_lock(:gid)"), {"gid": scan.asset_group_id})
+        except Exception as lock_err:
+            logger.debug(f"pg_advisory_xact_lock: {lock_err}")
+
     # 1. Identificar hosts presentes neste novo scan
     scanned_hosts = db.query(models.Host).filter(models.Host.scan_id == scan.id).all()
     scanned_host_ips = {h.ip_address.strip() for h in scanned_hosts if h.ip_address}
     if not scanned_host_ips:
         return
 
-    # 2. Identificar vulnerabilidades não-Info encontradas no novo scan
+    # 2. Identificar vulnerabilidades encontradas no novo scan (sem excluir severidades para preservar auditoria de escopos específicos)
     new_vulns = db.query(models.Vulnerability).join(
         models.Host, models.Vulnerability.host_id == models.Host.id
     ).filter(
-        models.Vulnerability.scan_id == scan.id,
-        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+        models.Vulnerability.scan_id == scan.id
     ).all()
 
     new_vulns_by_pair: Dict[Tuple[str, str], List[models.Vulnerability]] = {}
@@ -651,11 +657,15 @@ def sync_action_plans_on_scan_import(
     ).all()
 
     for plan in active_plans:
-        # Verificar abrangência do grupo de ativos
-        if plan.asset_group_id and scan.asset_group_id:
-            plan_gids = get_descendant_group_ids(db, plan.asset_group_id, include_self=True)
-            if scan.asset_group_id not in plan_gids:
-                continue
+        # Verificar abrangência do grupo de ativos (incluindo grupos descendentes)
+        plan_gids = set()
+        if plan.asset_group_id:
+            plan_gids.update(get_descendant_group_ids(db, plan.asset_group_id, include_self=True))
+        if plan.target_host and plan.target_host.asset_group_id:
+            plan_gids.update(get_descendant_group_ids(db, plan.target_host.asset_group_id, include_self=True))
+
+        if plan_gids and scan.asset_group_id and (scan.asset_group_id not in plan_gids):
+            continue
 
         tasks = plan.tasks or []
         if not tasks:
@@ -672,12 +682,25 @@ def sync_action_plans_on_scan_import(
                     monitored_pairs.add((v.host.ip_address.strip(), str(v.plugin_id).strip()))
                     task_host_ips.add(v.host.ip_address.strip())
 
+            # Se a etapa ainda não tiver links associados, tentar deduzir por IP de host da tarefa e escopo do plano
+            if not monitored_pairs:
+                task_ip_candidate = task.title.split()[0].strip("()[],")
+                if task_ip_candidate in scanned_host_ips:
+                    task_host_ips.add(task_ip_candidate)
+                    if plan.scope_plugins:
+                        for sp in plan.scope_plugins:
+                            monitored_pairs.add((task_ip_candidate, str(sp.plugin_id).strip()))
+                    elif plan.target_plugin_id:
+                        monitored_pairs.add((task_ip_candidate, str(plan.target_plugin_id).strip()))
+
             # Se o escopo for baseado puramente em host (HOST ou MATRIX_NN sem lista de plugins),
             # adicionar quaisquer novas vulnerabilidades dos hosts monitorados pela tarefa
             is_host_scope_task = (plan.scope_type == "HOST") or (plan.scope_type == "MATRIX_NN" and not (plan.scope_plugins and len(plan.scope_plugins) > 0))
             if is_host_scope_task and task_host_ips:
                 for nv in new_vulns:
                     if nv.host and nv.host.ip_address and nv.host.ip_address.strip() in task_host_ips:
+                        if nv.severity and nv.severity.lower() in ["info", "none"]:
+                            continue
                         monitored_pairs.add((nv.host.ip_address.strip(), str(nv.plugin_id).strip()))
 
             # Considerar apenas pares cujos hosts participaram do novo scan
@@ -688,7 +711,7 @@ def sync_action_plans_on_scan_import(
             present_pairs = {p for p in relevant_pairs if p in new_vulns_by_pair}
             absent_pairs = {p for p in relevant_pairs if p not in new_vulns_by_pair}
 
-            # A. Tratamento de pares PRESENTES (Recorrência)
+            # A. Tratamento de pares PRESENTES (Vulnerabilidade Não Remediada / Recorrência)
             for pair in present_pairs:
                 host_ip, pid_str = pair
                 for nv in new_vulns_by_pair[pair]:
@@ -711,15 +734,40 @@ def sync_action_plans_on_scan_import(
                         nv.treatment_status = "In_Action_Plan"
                         nv.treated_by_username = current_username
                         nv.treated_at = now
-                        nv.treatment_notes = f"Recorrência detectada no Scan #{scan.id} e associada ao Plano de Ação #{plan.id} ({plan.title}) - Etapa '{task.title}'."
+                        nv.treatment_notes = (
+                            f"Vulnerabilidade não remediada: persistência confirmada no Scan #{scan.id} "
+                            f"para o Host {host_ip}. Mantida no Plano de Ação #{plan.id} ({plan.title}) - Etapa '{task.title}'."
+                        )
                         hist_nv = models.VulnerabilityTreatmentHistory(
                             vulnerability_id=nv.id,
                             treatment_status="In_Action_Plan",
-                            treatment_notes=f"Recorrência detectada no Scan #{scan.id} e vinculada à Etapa '{task.title}' do Plano de Ação #{plan.id}.",
+                            treatment_notes=(
+                                f"Vulnerabilidade não remediada: detectada no Scan #{scan.id} "
+                                f"e vinculada à Etapa '{task.title}' do Plano de Ação #{plan.id}."
+                            ),
                             changed_by_username=current_username,
                             changed_at=now
                         )
                         db.add(hist_nv)
+
+                # Atualizar vulnerabilidades anteriores da mesma tarefa registrando explicitamente a não remediação
+                for link in (task.vulnerability_links or []):
+                    old_v = link.vulnerability
+                    if old_v and old_v.host and old_v.host.ip_address.strip() == host_ip and str(old_v.plugin_id).strip() == pid_str:
+                        old_v.treatment_status = "In_Action_Plan"
+                        old_v.treated_by_username = current_username
+                        old_v.treated_at = now
+                        old_v.treatment_notes = (
+                            f"Vulnerabilidade não remediada: persistência confirmada no Scan #{scan.id}."
+                        )
+                        hist_not_rem = models.VulnerabilityTreatmentHistory(
+                            vulnerability_id=old_v.id,
+                            treatment_status="In_Action_Plan",
+                            treatment_notes=f"Vulnerabilidade não remediada: persistência detectada no Scan #{scan.id}.",
+                            changed_by_username=current_username,
+                            changed_at=now
+                        )
+                        db.add(hist_not_rem)
 
             # B. Tratamento de pares AUSENTES (Remediados)
             for pair in absent_pairs:
@@ -727,49 +775,59 @@ def sync_action_plans_on_scan_import(
                 for link in (task.vulnerability_links or []):
                     old_v = link.vulnerability
                     if old_v and old_v.host and old_v.host.ip_address.strip() == host_ip and str(old_v.plugin_id).strip() == pid_str:
-                        if old_v.treatment_status not in ["Remediated", "Accepted_Risk"]:
+                        if old_v.treatment_status != "Remediated":
                             old_v.treatment_status = "Remediated"
                             old_v.treated_by_username = current_username
                             old_v.treated_at = now
-                            old_v.treatment_notes = f"Remediada: vulnerabilidade não mais detectada no Host {host_ip} no Scan #{scan.id}."
+                            old_v.treatment_notes = (
+                                f"Remediada: vulnerabilidade não mais detectada no Host {host_ip} no Scan #{scan.id} "
+                                f"(Plano de Ação #{plan.id} - Etapa '{task.title}')."
+                            )
                             hist_rem = models.VulnerabilityTreatmentHistory(
                                 vulnerability_id=old_v.id,
                                 treatment_status="Remediated",
-                                treatment_notes=f"Remediada: vulnerabilidade não mais detectada no Host {host_ip} no Scan #{scan.id}.",
+                                treatment_notes=f"Remediada: vulnerabilidade corrigida e ausente no Scan #{scan.id}.",
                                 changed_by_username=current_username,
                                 changed_at=now
                             )
                             db.add(hist_rem)
 
+                # Também marcar como Remediated instâncias anteriores abertas ou em plano deste par no grupo de ativos
+                prior_vulns = db.query(models.Vulnerability).join(
+                    models.Host, models.Vulnerability.host_id == models.Host.id
+                ).filter(
+                    models.Host.ip_address == host_ip,
+                    models.Vulnerability.plugin_id == pid_str,
+                    models.Vulnerability.treatment_status.in_(["Open", "In_Action_Plan"])
+                ).all()
+                for pv in prior_vulns:
+                    if pv.asset_group_id == scan.asset_group_id or (plan_gids and pv.asset_group_id in plan_gids):
+                        pv.treatment_status = "Remediated"
+                        pv.treated_by_username = current_username
+                        pv.treated_at = now
+                        pv.treatment_notes = (
+                            f"Remediada: vulnerabilidade confirmada como corrigida (ausente no Scan #{scan.id}) "
+                            f"pelo Plano de Ação #{plan.id} ({plan.title})."
+                        )
+                        db.add(models.VulnerabilityTreatmentHistory(
+                            vulnerability_id=pv.id,
+                            treatment_status="Remediated",
+                            treatment_notes=f"Remediada: ausente no Scan #{scan.id} (Plano #{plan.id}).",
+                            changed_by_username=current_username,
+                            changed_at=now
+                        ))
+
             # C. Atualização do status da Etapa/Tarefa
             if len(present_pairs) > 0:
-                # Regra 4: se a tarefa estava como concluída e o plano está em PLANNED ou IN_PROGRESS, atualize para 'Em Revisão'
+                # Regra: se a vulnerabilidade não foi remediada e a tarefa estava como concluída, reabrir para 'REVIEW'
                 if task.status == "DONE":
                     task.status = "REVIEW"
                     task.completed_at = None
-
-                    # Reabrir vulnerabilidades anteriores para In_Action_Plan
-                    for link in (task.vulnerability_links or []):
-                        old_v = link.vulnerability
-                        if old_v and (old_v.host.ip_address.strip(), str(old_v.plugin_id).strip()) in present_pairs:
-                            if old_v.treatment_status != "In_Action_Plan":
-                                old_v.treatment_status = "In_Action_Plan"
-                                old_v.treated_by_username = current_username
-                                old_v.treated_at = now
-                                old_v.treatment_notes = f"Reaberto para 'Em Revisão' devido à reincidência confirmada no Scan #{scan.id}."
-                                hist_reopen = models.VulnerabilityTreatmentHistory(
-                                    vulnerability_id=old_v.id,
-                                    treatment_status="In_Action_Plan",
-                                    treatment_notes=f"Reaberto para 'Em Revisão' devido à reincidência confirmada no Scan #{scan.id}.",
-                                    changed_by_username=current_username,
-                                    changed_at=now
-                                )
-                                db.add(hist_reopen)
-
             elif len(present_pairs) == 0 and len(absent_pairs) > 0:
-                # Regra 3: todas as vulnerabilidades monitoradas no novo scan não mais existem
-                task.status = "DONE"
-                task.completed_at = now
+                # Se todas as vulnerabilidades monitoradas para este host foram remediadas
+                if all(p in absent_pairs for p in monitored_pairs):
+                    task.status = "DONE"
+                    task.completed_at = now
 
         # D. Atualização do status do Plano
         all_tasks = plan.tasks or []
@@ -779,9 +837,10 @@ def sync_action_plans_on_scan_import(
             if all_done and plan.status != "COMPLETED":
                 plan.status = "COMPLETED"
                 plan.updated_at = now
-            elif any_active and plan.status == "COMPLETED":
-                plan.status = "IN_PROGRESS"
-                plan.updated_at = now
+            elif any_active:
+                if plan.status in ["PLANNED", "COMPLETED"]:
+                    plan.status = "IN_PROGRESS"
+                    plan.updated_at = now
 
     db.commit()
 
@@ -1282,10 +1341,12 @@ def get_wizard_vulnerabilities(
     else:
         allowed_status_clause = models.Vulnerability.treatment_status.in_(["Open", "open"])
 
+    severity_agg = func.max(models.Vulnerability.severity)
+
     query = db.query(
         models.Vulnerability.plugin_id,
         func.max(models.Vulnerability.plugin_name).label('plugin_name'),
-        func.max(models.Vulnerability.severity).label('severity'),
+        severity_agg.label('severity'),
         func.max(models.Vulnerability.cve).label('cve'),
         func.count(func.distinct(models.Host.ip_address)).label('affected_hosts_count')
     ).join(
@@ -1313,10 +1374,10 @@ def get_wizard_vulnerabilities(
 
     query = query.group_by(models.Vulnerability.plugin_id).order_by(
         case(
-            (models.Vulnerability.severity == "Critical", 1),
-            (models.Vulnerability.severity == "High", 2),
-            (models.Vulnerability.severity == "Medium", 3),
-            (models.Vulnerability.severity == "Low", 4),
+            (severity_agg == "Critical", 1),
+            (severity_agg == "High", 2),
+            (severity_agg == "Medium", 3),
+            (severity_agg == "Low", 4),
             else_=5
         ),
         func.count(func.distinct(models.Host.ip_address)).desc()

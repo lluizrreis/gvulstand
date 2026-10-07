@@ -37,13 +37,16 @@ const App = {
     currentActionPlan: null,
     actionPlansPage: 1,
     actionPlansPageSize: 10,
-    planWizardHostOsFilter: ''
+    planWizardHostOsFilter: '',
+    savedScannerCredentials: [],
+    selectedCredentialSourceId: null
   },
 
   async init() {
     this.initTheme();
     this.bindEvents();
     this.checkSession();
+    this.startJobsPolling();
   },
 
   initTheme() {
@@ -411,6 +414,12 @@ const App = {
       else assetGroupsNav.classList.add('hidden');
     }
 
+    const integNav = document.getElementById('nav-scannerIntegrations');
+    if (integNav) {
+      if (isAdmin) integNav.classList.remove('hidden');
+      else integNav.classList.add('hidden');
+    }
+
     const scansNav = document.getElementById('nav-scans');
     if (scansNav) {
       if (isAdmin || isAnalyst) scansNav.classList.remove('hidden');
@@ -490,13 +499,17 @@ const App = {
     this.showLogin();
   },
 
+  switchTab(tabName) {
+    return this.navigate(tabName);
+  },
+
   navigate(tabName) {
     const role = (this.state.user?.role || 'analyst').toLowerCase();
     const isAdmin = role === 'admin';
     const isAnalyst = role === 'analyst';
 
     // RBAC Route Guard
-    if ((tabName === 'users' || tabName === 'ldapConfig' || tabName === 'assetGroups' || tabName === 'parameters') && !isAdmin) {
+    if ((tabName === 'users' || tabName === 'ldapConfig' || tabName === 'assetGroups' || tabName === 'parameters' || tabName === 'scannerIntegrations') && !isAdmin) {
       alert('Acesso negado: esta funcionalidade de Administração é restrita ao Administrador Geral.');
       return;
     }
@@ -527,6 +540,34 @@ const App = {
     const target = document.getElementById(`tab-${tabName}`);
     if (target) {
       target.classList.remove('hidden');
+    }
+
+    if (tabName === 'users') {
+      document.getElementById('user-modal')?.classList.add('hidden');
+      document.getElementById('users-list-view')?.classList.remove('hidden');
+    } else if (tabName === 'inventory') {
+      document.getElementById('host-detail-modal')?.classList.add('hidden');
+      document.getElementById('inventory-list-view')?.classList.remove('hidden');
+    } else if (tabName === 'vulnerabilities') {
+      document.getElementById('vuln-detail-modal')?.classList.add('hidden');
+      document.getElementById('bulk-treatment-modal')?.classList.add('hidden');
+      document.getElementById('vuln-list-view')?.classList.remove('hidden');
+    } else if (tabName === 'top100') {
+      document.getElementById('plugin-solution-modal')?.classList.add('hidden');
+      document.getElementById('top100-list-view')?.classList.remove('hidden');
+    } else if (tabName === 'assetGroups') {
+      document.getElementById('asset-group-modal')?.classList.add('hidden');
+      document.getElementById('asset-groups-list-view')?.classList.remove('hidden');
+    } else if (tabName === 'scannerIntegrations') {
+      document.getElementById('scanner-integration-modal')?.classList.add('hidden');
+      document.getElementById('modal-jobs-history')?.classList.add('hidden');
+      document.getElementById('scanner-integrations-list-view')?.classList.remove('hidden');
+    } else if (tabName === 'actionPlans') {
+      document.getElementById('action-plan-modal')?.classList.add('hidden');
+      document.getElementById('action-plan-detail-modal')?.classList.add('hidden');
+      document.getElementById('action-plans-main-view')?.classList.remove('hidden');
+    } else if (tabName === 'parameters') {
+      document.getElementById('modal-preview-ignored')?.classList.add('hidden');
     }
 
     this.loadCurrentTabData();
@@ -582,6 +623,11 @@ const App = {
       case 'parameters':
         if (this.state.user?.role === 'admin') {
           this.loadParameters();
+        }
+        break;
+      case 'scannerIntegrations':
+        if (this.state.user?.role === 'admin') {
+          this.loadScannerIntegrations();
         }
         break;
     }
@@ -1567,6 +1613,7 @@ const App = {
 
   filterVulnsFromModal() {
     const ip = this.state.inventoryCurrentHostIp;
+    this.state.hostReturnTab = null;
     this.closeHostModal();
     if (ip) {
       this.filterVulnsByHost(ip);
@@ -1863,7 +1910,13 @@ const App = {
               <span class="badge-high px-2 py-0.5 rounded text-xs font-bold" title="${consolidatedTooltip}">${g.high_count || 0}</span>
             </td>
             <td class="text-right space-x-1">
-              ${(this.state.user?.role === 'admin' || this.state.user?.role === 'analyst') ? `<button onclick="App.openEditAssetGroupModal(${g.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">Editar</button>` : ''}
+              ${(this.state.user?.role === 'admin' || this.state.user?.role === 'analyst') ? `
+                <button onclick="App.openCreateScannerIntegrationModal(${g.id})" title="Configurar Integração de API (Tenable / Defender)" class="px-2 py-1 text-xs font-medium rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/30 cursor-pointer inline-flex items-center space-x-1">
+                  <i data-lucide="cloud-lightning" class="w-3.5 h-3.5"></i>
+                  <span>API</span>
+                </button>
+                <button onclick="App.openEditAssetGroupModal(${g.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">Editar</button>
+              ` : ''}
               ${this.state.user?.role === 'admin' ? `<button onclick="App.handleDeleteAssetGroup(${g.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 cursor-pointer">Excluir</button>` : ''}
               ${this.state.user?.role === 'auditor' ? `<span class="text-xs text-slate-500 italic">Somente Leitura</span>` : ''}
             </td>
@@ -1908,8 +1961,10 @@ const App = {
       parentSelect.value = '';
     }
 
+    document.getElementById('asset-groups-list-view')?.classList.add('hidden');
     document.getElementById('asset-group-modal').classList.remove('hidden');
     this.refreshIcons();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   openEditAssetGroupModal(groupId) {
@@ -1952,12 +2007,16 @@ const App = {
       parentSelect.value = group.parent_id || '';
     }
 
+    document.getElementById('asset-groups-list-view')?.classList.add('hidden');
     document.getElementById('asset-group-modal').classList.remove('hidden');
     this.refreshIcons();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   closeAssetGroupModal() {
     document.getElementById('asset-group-modal').classList.add('hidden');
+    document.getElementById('asset-groups-list-view')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   async handleSaveAssetGroup(e) {
@@ -2540,13 +2599,20 @@ const App = {
     const errEl = document.getElementById('bulk-treatment-error');
     if (errEl) errEl.classList.add('hidden');
     const modal = document.getElementById('bulk-treatment-modal');
-    if (modal) modal.classList.remove('hidden');
+    if (modal) {
+      document.getElementById('vuln-list-view')?.classList.add('hidden');
+      document.getElementById('vuln-detail-modal')?.classList.add('hidden');
+      modal.classList.remove('hidden');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     this.refreshIcons();
   },
 
   closeBulkTreatmentModal() {
     const modal = document.getElementById('bulk-treatment-modal');
     if (modal) modal.classList.add('hidden');
+    document.getElementById('vuln-list-view')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   async handleSaveBulkTreatment(e) {
@@ -2697,6 +2763,7 @@ const App = {
     formData.append('asset_group_id', groupSelect.value);
     formData.append('scan_name', nameInput.value || fileInput.files[0].name);
     formData.append('scan_type', 'baseline');
+    formData.append('async_mode', 'true');
     if (dateInput && dateInput.value) {
       formData.append('scan_date', dateInput.value);
     }
@@ -2704,18 +2771,20 @@ const App = {
       formData.append('notes', notesInput.value);
     }
 
+    const fileName = fileInput.files[0].name;
+
     try {
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>Importando e Processando...</span>';
+        submitBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>Enviando para a Fila...</span>';
       }
       this.refreshIcons();
 
-      await API.uploadScan(formData);
+      const res = await API.uploadScan(formData);
 
       if (statusMsg) {
         statusMsg.className = 'mt-4 p-3 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 block';
-        statusMsg.textContent = 'Scan importado e processado com sucesso!';
+        statusMsg.textContent = 'Scan enviado para a fila de processamento!';
       }
 
       // Reset form fields
@@ -2724,9 +2793,17 @@ const App = {
       if (dateInput) dateInput.value = '';
       if (notesInput) notesInput.value = '';
 
-      await this.loadScansTable();
-      this.loadDashboardData();
-      this.loadUniqueHostsDatalist();
+      if (res && res.job_id) {
+        this.trackJobProgress(res.job_id, `Upload CSV (${fileName})`, () => {
+          this.loadScansTable();
+          this.loadDashboardData();
+          this.loadUniqueHostsDatalist();
+        });
+      } else {
+        await this.loadScansTable();
+        this.loadDashboardData();
+        this.loadUniqueHostsDatalist();
+      }
     } catch (err) {
       if (statusMsg) {
         statusMsg.className = 'mt-4 p-3 rounded-lg text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 block';
@@ -2773,76 +2850,273 @@ const App = {
   },
 
   // --- USERS MANAGEMENT (ADMIN ONLY) ---
-  // --- USERS MANAGEMENT (ADMIN ONLY) ---
+  usersState: {
+    searchQuery: '',
+    roleFilter: '',
+    authFilter: '',
+    page: 1,
+    pageSize: 10
+  },
+
+  handleUsersSearch(query) {
+    this.usersState.searchQuery = query || '';
+    this.usersState.page = 1;
+    const clearBtn = document.getElementById('users-search-clear');
+    if (clearBtn) {
+      if (query && query.trim().length > 0) clearBtn.classList.remove('hidden');
+      else clearBtn.classList.add('hidden');
+    }
+    this.renderUsersTable();
+  },
+
+  clearUsersSearch() {
+    const input = document.getElementById('users-search-input');
+    if (input) input.value = '';
+    this.handleUsersSearch('');
+  },
+
+  handleUsersRoleFilter(role) {
+    this.usersState.roleFilter = role || '';
+    this.usersState.page = 1;
+    this.renderUsersTable();
+  },
+
+  handleUsersAuthFilter(auth) {
+    this.usersState.authFilter = auth || '';
+    this.usersState.page = 1;
+    this.renderUsersTable();
+  },
+
+  handleUsersPageSize(size) {
+    this.usersState.pageSize = parseInt(size, 10) || 10;
+    this.usersState.page = 1;
+    this.renderUsersTable();
+  },
+
+  prevUsersPage() {
+    if (this.usersState.page > 1) {
+      this.usersState.page--;
+      this.renderUsersTable();
+    }
+  },
+
+  nextUsersPage() {
+    const filtered = this.getFilteredUsers();
+    const totalPages = Math.ceil(filtered.length / (this.usersState.pageSize || 10)) || 1;
+    if (this.usersState.page < totalPages) {
+      this.usersState.page++;
+      this.renderUsersTable();
+    }
+  },
+
+  goToUsersPage(p) {
+    this.usersState.page = p;
+    this.renderUsersTable();
+  },
+
+  getFilteredUsers() {
+    let list = this.state.usersList || [];
+    const query = (this.usersState.searchQuery || '').toLowerCase().trim();
+    const role = this.usersState.roleFilter;
+    const auth = this.usersState.authFilter;
+
+    if (query) {
+      list = list.filter(u => {
+        const username = (u.username || '').toLowerCase();
+        const fullname = (u.full_name || '').toLowerCase();
+        const email = (u.email || '').toLowerCase();
+        const sam = (u.sam_account_name || '').toLowerCase();
+        const groups = (u.allowed_groups || []).map(g => (g.asset_group_name || '').toLowerCase()).join(' ');
+        return username.includes(query) ||
+               fullname.includes(query) ||
+               email.includes(query) ||
+               sam.includes(query) ||
+               groups.includes(query);
+      });
+    }
+
+    if (role) {
+      list = list.filter(u => u.role === role);
+    }
+
+    if (auth) {
+      list = list.filter(u => u.auth_type === auth);
+    }
+
+    return list;
+  },
+
   async loadUsersTable() {
     const tbody = document.getElementById('users-tbody');
     if (!tbody) return;
     tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400">Carregando usuários...</td></tr>`;
 
+    // Ensure list view is active and full frame form is hidden
+    document.getElementById('user-modal')?.classList.add('hidden');
+    document.getElementById('users-list-view')?.classList.remove('hidden');
+
     try {
       const users = await API.listUsers();
       this.state.usersList = users || [];
-
-      tbody.innerHTML = this.state.usersList.map(u => {
-        let roleBadge = '<span class="px-2.5 py-1 rounded text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700">DESCONHECIDO</span>';
-        if (u.role === 'admin') {
-          roleBadge = '<span class="px-2.5 py-1 rounded text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">ADMINISTRADOR GERAL</span>';
-        } else if (u.role === 'analyst') {
-          roleBadge = '<span class="px-2.5 py-1 rounded text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">ANALISTA DE SEGURANÇA</span>';
-        } else if (u.role === 'auditor') {
-          roleBadge = '<span class="px-2.5 py-1 rounded text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">AUDITOR ISO</span>';
-        }
-
-        const isLdap = u.auth_type === 'ldap';
-        const originBadge = isLdap
-          ? `<div class="space-y-0.5">
-               <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 inline-flex items-center space-x-1">
-                 <i data-lucide="network" class="w-3 h-3"></i>
-                 <span>LDAP (AD)</span>
-               </span>
-               <div class="text-[10px] text-purple-400 font-mono">${u.sam_account_name || u.username}</div>
-             </div>`
-          : `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-800 text-slate-300 border border-slate-700 inline-flex items-center space-x-1">
-               <i data-lucide="user" class="w-3 h-3"></i>
-               <span>Local</span>
-             </span>`;
-
-        let groupsScopeBadge = '';
-        if (u.role === 'admin') {
-          groupsScopeBadge = '<span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">Acesso Total (Todos)</span>';
-        } else if (u.allowed_groups && u.allowed_groups.length > 0) {
-          groupsScopeBadge = `<div class="flex flex-wrap gap-1 max-w-xs">` + u.allowed_groups.map(g => {
-            return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-teal-300 border border-slate-700" title="${g.asset_group_name || 'Grupo'} (Acesso concedido + herança para todos os subgrupos)">
-              <span class="font-medium">🏢 ${g.asset_group_name || `Grupo #${g.asset_group_id}`}</span>
-            </span>`;
-          }).join('') + `</div>`;
-        } else {
-          groupsScopeBadge = '<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 border border-slate-700">Global (Sem restrições)</span>';
-        }
-
-        return `
-        <tr class="hover:bg-slate-800/40 transition">
-          <td class="font-semibold text-slate-200">${u.username}</td>
-          <td>${originBadge}</td>
-          <td class="text-slate-300">${u.full_name || '-'}</td>
-          <td class="text-slate-400 font-mono text-xs">${u.email}</td>
-          <td>${roleBadge}</td>
-          <td>${groupsScopeBadge}</td>
-          <td class="text-center">
-            ${u.is_active ? '<span class="text-emerald-400 font-semibold text-xs">Ativo</span>' : '<span class="text-rose-400 font-semibold text-xs">Inativo</span>'}
-          </td>
-          <td class="text-xs text-slate-400 font-mono">${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
-          <td class="text-right space-x-1">
-            <button onclick="App.openEditUserModal(${u.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">Editar</button>
-            ${u.username !== 'Admin' ? `<button onclick="App.handleDeleteUser(${u.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 cursor-pointer">Excluir</button>` : ''}
-          </td>
-        </tr>
-      `;
-      }).join('');
-      this.refreshIcons();
+      this.renderUsersTable();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-rose-400">Erro: ${e.message}</td></tr>`;
     }
+  },
+
+  renderUsersTable() {
+    const tbody = document.getElementById('users-tbody');
+    if (!tbody) return;
+
+    const filtered = this.getFilteredUsers();
+    const total = filtered.length;
+    const pageSize = this.usersState.pageSize || 10;
+    const totalPages = Math.ceil(total / pageSize) || 1;
+    if (this.usersState.page > totalPages) this.usersState.page = totalPages;
+    if (this.usersState.page < 1) this.usersState.page = 1;
+    const page = this.usersState.page;
+
+    const startIdx = (page - 1) * pageSize;
+    const endIdx = Math.min(startIdx + pageSize, total);
+    const paginated = filtered.slice(startIdx, endIdx);
+
+    // Update counter
+    const counterBadge = document.getElementById('users-count-badge');
+    if (counterBadge) {
+      counterBadge.textContent = `${total} ${total === 1 ? 'usuário' : 'usuários'}`;
+    }
+
+    if (total === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400">Nenhum usuário encontrado com os filtros aplicados.</td></tr>`;
+      this.renderUsersPagination(0, 1, pageSize, 1, 0, 0);
+      return;
+    }
+
+    tbody.innerHTML = paginated.map(u => {
+      let roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono">DESCONHECIDO</span>';
+      if (u.role === 'admin') {
+        roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 font-mono">ADMINISTRADOR GERAL</span>';
+      } else if (u.role === 'analyst') {
+        roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-50 dark:bg-cyan-950/40 text-teal-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/60 font-mono">ANALISTA DE SEGURANÇA</span>';
+      } else if (u.role === 'auditor') {
+        roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 font-mono">AUDITOR ISO</span>';
+      }
+
+      const isLdap = u.auth_type === 'ldap';
+      const originBadge = isLdap
+        ? `<div class="space-y-0.5">
+             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50 inline-flex items-center space-x-1">
+               <i data-lucide="network" class="w-3 h-3"></i>
+               <span>LDAP (AD)</span>
+             </span>
+             <div class="text-[10px] text-purple-600 dark:text-purple-400 font-mono">${u.sam_account_name || u.username}</div>
+           </div>`
+        : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 inline-flex items-center space-x-1">
+             <i data-lucide="user" class="w-3 h-3"></i>
+             <span>Local</span>
+           </span>`;
+
+      let groupsScopeBadge = '';
+      if (u.role === 'admin') {
+        groupsScopeBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">Acesso Total (Todos)</span>';
+      } else if (u.allowed_groups && u.allowed_groups.length > 0) {
+        const maxShow = 2;
+        const shown = u.allowed_groups.slice(0, maxShow);
+        const remaining = u.allowed_groups.length - maxShow;
+        groupsScopeBadge = `<div class="flex flex-wrap items-center gap-1">` +
+          shown.map(g => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-teal-700 dark:text-teal-300 border border-slate-200 dark:border-slate-700" title="${g.asset_group_name || 'Grupo'} (Acesso concedido + herança)">
+            <span>🏢 ${g.asset_group_name || `Grupo #${g.asset_group_id}`}</span>
+          </span>`).join('') +
+          (remaining > 0 ? `<span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium" title="${u.allowed_groups.map(g => g.asset_group_name).join(', ')}">+${remaining}</span>` : '') +
+          `</div>`;
+      } else {
+        groupsScopeBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">Global (Sem restrições)</span>';
+      }
+
+      return `
+      <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+        <td class="font-semibold text-slate-900 dark:text-slate-100 text-xs">${u.username}</td>
+        <td>${originBadge}</td>
+        <td class="text-slate-700 dark:text-slate-300 text-xs">${u.full_name || '-'}</td>
+        <td class="text-slate-500 dark:text-slate-400 font-mono text-[11px]">${u.email}</td>
+        <td>${roleBadge}</td>
+        <td>${groupsScopeBadge}</td>
+        <td class="text-center">
+          ${u.is_active ? '<span class="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Ativo</span>' : '<span class="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>Inativo</span>'}
+        </td>
+        <td class="text-xs text-slate-500 dark:text-slate-400 font-mono">${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
+        <td class="text-right">
+          <div class="flex items-center justify-end space-x-1">
+            <button onclick="App.openEditUserModal(${u.id})" class="px-2 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition cursor-pointer">Editar</button>
+            ${u.username !== 'Admin' ? `<button onclick="App.handleDeleteUser(${u.id})" class="px-2 py-1 text-xs font-medium rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20 border border-rose-200 dark:border-rose-500/30 transition cursor-pointer">Excluir</button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
+    }).join('');
+
+    this.renderUsersPagination(total, page, pageSize, totalPages, startIdx + 1, endIdx);
+    this.refreshIcons();
+  },
+
+  renderUsersPagination(total, page, pageSize, totalPages, startDisplay, endDisplay) {
+    const infoEl = document.getElementById('users-page-info');
+    if (infoEl) {
+      if (total === 0) {
+        infoEl.textContent = 'Mostrando 0-0 de 0';
+      } else {
+        infoEl.textContent = `Mostrando ${startDisplay}-${endDisplay} de ${total}`;
+      }
+    }
+
+    const prevBtn = document.getElementById('users-prev-btn');
+    if (prevBtn) {
+      prevBtn.disabled = page <= 1 || total === 0;
+    }
+
+    const nextBtn = document.getElementById('users-next-btn');
+    if (nextBtn) {
+      nextBtn.disabled = page >= totalPages || total === 0;
+    }
+
+    const pillsContainer = document.getElementById('users-page-pills');
+    if (pillsContainer) {
+      if (total === 0 || totalPages <= 1) {
+        pillsContainer.innerHTML = '';
+        return;
+      }
+
+      let pillsHtml = '';
+      if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) {
+          pillsHtml += this.getUserPagePillHtml(i, i === page);
+        }
+      } else {
+        const pages = [1];
+        let left = Math.max(2, page - 1);
+        let right = Math.min(totalPages - 1, page + 1);
+        if (left > 2) pages.push('...');
+        for (let i = left; i <= right; i++) pages.push(i);
+        if (right < totalPages - 1) pages.push('...');
+        pages.push(totalPages);
+
+        pages.forEach(p => {
+          if (p === '...') {
+            pillsHtml += `<span class="px-1.5 py-0.5 text-slate-400 text-xs">...</span>`;
+          } else {
+            pillsHtml += this.getUserPagePillHtml(p, p === page);
+          }
+        });
+      }
+      pillsContainer.innerHTML = pillsHtml;
+    }
+  },
+
+  getUserPagePillHtml(pageNum, isActive) {
+    if (isActive) {
+      return `<button class="w-6 h-6 rounded-md bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-xs cursor-default">${pageNum}</button>`;
+    }
+    return `<button onclick="App.goToUsersPage(${pageNum})" class="w-6 h-6 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium text-xs flex items-center justify-center transition cursor-pointer">${pageNum}</button>`;
   },
 
   async renderUserModalGroups(userAllowedGroups = []) {
@@ -2962,7 +3236,9 @@ const App = {
     this.onUserRoleChange();
     this.renderUserModalGroups([]);
 
-    document.getElementById('user-modal').classList.remove('hidden');
+    document.getElementById('users-list-view')?.classList.add('hidden');
+    document.getElementById('user-modal')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     this.refreshIcons();
   },
 
@@ -2994,7 +3270,9 @@ const App = {
     this.onUserRoleChange();
     this.renderUserModalGroups(user.allowed_groups || []);
 
-    document.getElementById('user-modal').classList.remove('hidden');
+    document.getElementById('users-list-view')?.classList.add('hidden');
+    document.getElementById('user-modal')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     this.refreshIcons();
   },
 
@@ -3097,6 +3375,8 @@ const App = {
 
   closeUserModal() {
     document.getElementById('user-modal')?.classList.add('hidden');
+    document.getElementById('users-list-view')?.classList.remove('hidden');
+    this.refreshIcons();
   },
 
   async handleSaveUser(e) {
@@ -3489,11 +3769,28 @@ const App = {
   async openVulnDetailsModal(vulnId) {
     const modal = document.getElementById('vuln-detail-modal');
     if (!modal) return;
-    modal.classList.remove('hidden');
 
-    // Reset scroll position to top when opening modal
-    const modalBody = modal.querySelector('.overflow-y-auto');
-    if (modalBody) modalBody.scrollTop = 0;
+    // Track return tab / return host if opened from another tab or host view
+    if (this.state.currentTab !== 'vulnerabilities') {
+      this.state.vulnReturnTab = this.state.currentTab;
+      if (this.state.currentTab === 'inventory' && !document.getElementById('host-detail-modal')?.classList.contains('hidden')) {
+        this.state.vulnReturnHostId = this.state.inventoryCurrentHost?.id || null;
+      } else {
+        this.state.vulnReturnHostId = null;
+      }
+
+      document.querySelectorAll('.tab-content').forEach(section => section.classList.add('hidden'));
+      document.getElementById('tab-vulnerabilities')?.classList.remove('hidden');
+      document.querySelectorAll('.nav-link').forEach(link => {
+        if (link.getAttribute('data-tab') === 'vulnerabilities') link.classList.add('active');
+        else link.classList.remove('active');
+      });
+      this.state.currentTab = 'vulnerabilities';
+    }
+
+    document.getElementById('vuln-list-view')?.classList.add('hidden');
+    modal.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
     const titleEl = document.getElementById('modal-vuln-title');
     if (titleEl) {
@@ -3607,6 +3904,7 @@ const App = {
       const statusSelect = document.getElementById('modal-treatment-status');
       const notesInput = document.getElementById('modal-treatment-notes');
       const saveBtn = document.getElementById('btn-save-treatment');
+      const saveBtnTop = document.getElementById('btn-save-treatment-top');
       const auditorBadge = document.getElementById('modal-treatment-auditor-badge');
 
       if (statusSelect) statusSelect.disabled = isAuditor;
@@ -3614,6 +3912,10 @@ const App = {
       if (saveBtn) {
         if (isAuditor) saveBtn.classList.add('hidden');
         else saveBtn.classList.remove('hidden');
+      }
+      if (saveBtnTop) {
+        if (isAuditor) saveBtnTop.classList.add('hidden');
+        else saveBtnTop.classList.remove('hidden');
       }
       if (auditorBadge) {
         if (isAuditor) auditorBadge.classList.remove('hidden');
@@ -3722,7 +4024,9 @@ const App = {
     if (notesInput) notesInput.classList.remove('border-rose-400', 'focus:ring-rose-400');
 
     const btn = document.getElementById('btn-save-treatment');
+    const btnTop = document.getElementById('btn-save-treatment-top');
     if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+    if (btnTop) { btnTop.disabled = true; btnTop.textContent = 'Salvando...'; }
 
     try {
       await API.updateVulnerabilityTreatment(vulnId, status, notes);
@@ -3746,6 +4050,7 @@ const App = {
       }
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Salvar Tratativa'; }
+      if (btnTop) { btnTop.disabled = false; btnTop.textContent = 'Salvar Tratativa'; }
     }
   },
 
@@ -3817,16 +4122,38 @@ const App = {
 
   closeVulnDetailsModal() {
     document.getElementById('vuln-detail-modal')?.classList.add('hidden');
+    document.getElementById('vuln-list-view')?.classList.remove('hidden');
+
+    if (this.state.vulnReturnHostId && this.state.vulnReturnTab === 'inventory') {
+      const hostId = this.state.vulnReturnHostId;
+      this.state.vulnReturnHostId = null;
+      this.state.vulnReturnTab = null;
+      this.navigate('inventory');
+      this.openHostModal(hostId);
+    } else if (this.state.vulnReturnTab) {
+      const returnTab = this.state.vulnReturnTab;
+      this.state.vulnReturnTab = null;
+      this.navigate(returnTab);
+    } else {
+      this.refreshIcons();
+    }
   },
 
   closePluginSolutionModal() {
     document.getElementById('plugin-solution-modal')?.classList.add('hidden');
+    document.getElementById('top100-list-view')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   async openPluginSolutionModal(pluginId) {
+    if (this.state.currentTab !== 'top100') {
+      this.switchTab('top100');
+    }
+    document.getElementById('top100-list-view')?.classList.add('hidden');
     const modal = document.getElementById('plugin-solution-modal');
     if (!modal) return;
     modal.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
     // Estado inicial de carregamento
     document.getElementById('plugin-modal-title').textContent = 'Carregando solução e dados do plugin...';
@@ -4031,6 +4358,22 @@ const App = {
   async openHostModal(hostId) {
     const modal = document.getElementById('host-detail-modal');
     if (!modal) return;
+
+    // Track return tab if opened from outside inventory tab (e.g., Dashboard or Top 20)
+    if (this.state.currentTab !== 'inventory') {
+      this.state.hostReturnTab = this.state.currentTab;
+      document.querySelectorAll('.tab-content').forEach(section => section.classList.add('hidden'));
+      document.getElementById('tab-inventory')?.classList.remove('hidden');
+      document.querySelectorAll('.nav-link').forEach(link => {
+        if (link.getAttribute('data-tab') === 'inventory') link.classList.add('active');
+        else link.classList.remove('active');
+      });
+      this.state.currentTab = 'inventory';
+    }
+
+    document.getElementById('inventory-list-view')?.classList.add('hidden');
+    modal.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     
     document.getElementById('host-modal-ip').textContent = 'Carregando...';
     document.getElementById('host-modal-name').textContent = 'Carregando...';
@@ -4041,7 +4384,6 @@ const App = {
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400">Carregando vulnerabilidades do host...</td></tr>`;
     }
-    modal.classList.remove('hidden');
 
     try {
       const host = await API.getHostDetails(hostId);
@@ -4069,7 +4411,7 @@ const App = {
               <td class="text-xs font-mono text-slate-400">${v.port}/${v.protocol}</td>
               <td class="text-center">${v.exploit_available ? '<span class="badge-exploit px-2 py-0.5 rounded text-xs font-bold">SIM</span>' : '<span class="text-slate-500 text-xs">Não</span>'}</td>
               <td class="text-right">
-                <button onclick="App.openVulnDetailsModal(${v.id})" class="px-2 py-0.5 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer">Ver</button>
+                <button onclick="App.openVulnDetailsModal(${v.id})" class="px-2.5 py-1 text-xs rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900 cursor-pointer font-semibold transition">Ver</button>
               </td>
             </tr>
           `).join('');
@@ -4084,6 +4426,14 @@ const App = {
 
   closeHostModal() {
     document.getElementById('host-detail-modal')?.classList.add('hidden');
+    document.getElementById('inventory-list-view')?.classList.remove('hidden');
+    if (this.state.hostReturnTab) {
+      const returnTab = this.state.hostReturnTab;
+      this.state.hostReturnTab = null;
+      this.navigate(returnTab);
+    } else {
+      this.refreshIcons();
+    }
   },
 
   renderVulnActionPlanCard(v) {
@@ -4196,6 +4546,9 @@ const App = {
   },
 
   openPlanFromDetails(planId) {
+    this.state.vulnReturnTab = null;
+    this.state.vulnReturnHostId = null;
+    this.state.hostReturnTab = null;
     this.closeVulnDetailsModal();
     this.closeHostModal();
     this.navigate('actionPlans');
@@ -4203,15 +4556,25 @@ const App = {
   },
 
   openChangePasswordModal() {
-    document.getElementById('change-pwd-old').value = '';
-    document.getElementById('change-pwd-new').value = '';
+    if (this.state.currentTab !== 'settings') {
+      this.switchTab('settings');
+    }
+    const oldPwd = document.getElementById('change-pwd-old');
+    const newPwd = document.getElementById('change-pwd-new');
+    if (oldPwd) oldPwd.value = '';
+    if (newPwd) newPwd.value = '';
     document.getElementById('change-pwd-error')?.classList.add('hidden');
-    document.getElementById('change-pwd-modal')?.classList.remove('hidden');
+    const card = document.getElementById('change-pwd-modal');
+    if (card) {
+      card.classList.remove('hidden');
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => oldPwd?.focus(), 400);
+    }
     this.refreshIcons();
   },
 
   closeChangePasswordModal() {
-    document.getElementById('change-pwd-modal')?.classList.add('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   async handleChangePassword(e) {
@@ -4646,6 +5009,7 @@ const App = {
     if (kpiHosts) kpiHosts.textContent = '...';
     if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-500 font-sans">Analisando base de dados...</td></tr>';
     modal.classList.remove('hidden');
+    modal.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
     try {
       const data = await API.previewIgnoredVulnerabilities(raw);
@@ -6279,9 +6643,15 @@ const App = {
       console.warn('Erro ao configurar campos do plano de ação:', err);
     }
 
+    if (this.state.currentTab !== 'actionPlans') {
+      this.switchTab('actionPlans');
+    }
+    document.getElementById('action-plans-main-view')?.classList.add('hidden');
+    document.getElementById('action-plan-detail-modal')?.classList.add('hidden');
     modal.classList.remove('hidden');
     this.goToPlanWizardStep(1);
     this.refreshIcons();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   async openCreatePlanModalFromHost() {
@@ -6289,6 +6659,7 @@ const App = {
     const ip = host?.ip_address || host?.ip || document.getElementById('host-modal-ip')?.textContent?.trim() || '';
     const name = host?.hostname || document.getElementById('host-modal-name')?.textContent?.trim() || '';
     
+    this.state.hostReturnTab = null;
     this.closeHostModal();
     this.navigate('actionPlans');
     try {
@@ -6322,6 +6693,8 @@ const App = {
     const pluginId = v?.plugin_id || '';
     const title = v?.plugin_name || document.getElementById('modal-vuln-title')?.textContent?.trim() || 'Vulnerabilidade';
     
+    this.state.vulnReturnTab = null;
+    this.state.vulnReturnHostId = null;
     this.closeVulnDetailsModal();
     this.navigate('actionPlans');
     try {
@@ -6449,9 +6822,15 @@ const App = {
       const errBox = document.getElementById('action-plan-form-error');
       if (errBox) errBox.classList.add('hidden');
 
+      if (this.state.currentTab !== 'actionPlans') {
+        this.switchTab('actionPlans');
+      }
+      document.getElementById('action-plans-main-view')?.classList.add('hidden');
+      document.getElementById('action-plan-detail-modal')?.classList.add('hidden');
       modal.classList.remove('hidden');
       this.goToPlanWizardStep(1);
       this.refreshIcons();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       alert(`Erro ao abrir plano para edição: ${err.message}`);
     }
@@ -6461,6 +6840,8 @@ const App = {
     this.closePlanOwnerDropdown();
     const modal = document.getElementById('action-plan-modal');
     if (modal) modal.classList.add('hidden');
+    document.getElementById('action-plans-main-view')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   async handleSaveActionPlan(e) {
@@ -6581,9 +6962,16 @@ const App = {
   },
 
   async openActionPlanDetail(planId) {
+    if (this.state.currentTab !== 'actionPlans') {
+      this.switchTab('actionPlans');
+    }
     const modal = document.getElementById('action-plan-detail-modal');
     if (!modal) return;
+    document.getElementById('action-plans-main-view')?.classList.add('hidden');
+    document.getElementById('action-plan-modal')?.classList.add('hidden');
+    document.getElementById('action-task-modal')?.classList.add('hidden');
     modal.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
     // Loading State
     document.getElementById('plan-detail-title').textContent = 'Carregando plano...';
@@ -6768,6 +7156,9 @@ const App = {
   closeActionPlanDetailModal() {
     const modal = document.getElementById('action-plan-detail-modal');
     if (modal) modal.classList.add('hidden');
+    document.getElementById('action-task-modal')?.classList.add('hidden');
+    document.getElementById('action-plans-main-view')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   editCurrentPlan() {
@@ -6820,6 +7211,7 @@ const App = {
     if (errBox) errBox.classList.add('hidden');
 
     modal.classList.remove('hidden');
+    modal.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     this.refreshIcons();
   },
 
@@ -6853,6 +7245,7 @@ const App = {
     if (errBox) errBox.classList.add('hidden');
 
     modal.classList.remove('hidden');
+    modal.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     this.refreshIcons();
   },
 
@@ -6950,6 +7343,1291 @@ const App = {
       this.loadActionPlansData();
     } catch (err) {
       alert(`Erro ao remover etapa: ${err.message}`);
+    }
+  },
+
+  // ==========================================
+  // SCANNER INTEGRATIONS (TENABLE & DEFENDER)
+  // ==========================================
+  async loadScannerIntegrations() {
+    const filterSelect = document.getElementById('integrations-filter-group');
+    const tbody = document.getElementById('scanner-integrations-tbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-slate-400 text-xs">
+      <i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto text-cyan-600 mb-2"></i>
+      Carregando integrações configuradas...
+    </td></tr>`;
+    this.refreshIcons();
+
+    try {
+      // Ensure asset groups are loaded for filters and dropdowns
+      if (!this.state.assetGroups || this.state.assetGroups.length === 0) {
+        this.state.assetGroups = await API.listAssetGroups();
+      }
+
+      // Populate filter dropdown if needed
+      if (filterSelect && filterSelect.options.length <= 1) {
+        const curVal = filterSelect.value;
+        let opts = '<option value="">Todos os Grupos de Ativos</option>';
+        (this.state.assetGroups || []).forEach(g => {
+          opts += `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`;
+        });
+        filterSelect.innerHTML = opts;
+        filterSelect.value = curVal;
+      }
+
+      const selectedGroupId = filterSelect ? filterSelect.value : '';
+      const integrations = await API.getScannerIntegrations(selectedGroupId);
+      this.state.scannerIntegrations = integrations || [];
+
+      // Update stat cards
+      const statTotal = document.getElementById('stat-integrations-total');
+      const statActive = document.getElementById('stat-integrations-active');
+      const statTenable = document.getElementById('stat-integrations-tenable');
+      const statDefender = document.getElementById('stat-integrations-defender');
+
+      if (statTotal) statTotal.textContent = this.state.scannerIntegrations.length;
+      if (statActive) statActive.textContent = this.state.scannerIntegrations.filter(i => i.is_enabled).length;
+      if (statTenable) statTenable.textContent = this.state.scannerIntegrations.filter(i => i.scanner_type.startsWith('tenable')).length;
+      if (statDefender) statDefender.textContent = this.state.scannerIntegrations.filter(i => i.scanner_type === 'ms_defender').length;
+
+      if (!this.state.scannerIntegrations || this.state.scannerIntegrations.length === 0) {
+        tbody.innerHTML = `<tr>
+          <td colspan="7" class="text-center py-10 text-slate-400 text-xs">
+            <i data-lucide="cloud-off" class="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2"></i>
+            <p class="font-semibold text-slate-600 dark:text-slate-300">Nenhuma integração de scanner configurada.</p>
+            <p class="text-[11px] mt-1 text-slate-400">Conecte APIs do Tenable (IO, SC, Nessus) ou Microsoft Defender para importar vulnerabilidades automaticamente.</p>
+            <button onclick="App.openCreateScannerIntegrationModal('${selectedGroupId}')" class="mt-3 px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition cursor-pointer">
+              Criar Nova Conexão
+            </button>
+          </td>
+        </tr>`;
+        this.refreshIcons();
+        return;
+      }
+
+      let html = '';
+      this.state.scannerIntegrations.forEach(i => {
+        // Platform Badge
+        let platformBadge = '';
+        if (i.scanner_type === 'tenable_io') {
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30">
+            <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+            <span>Tenable.io</span>
+          </span>`;
+        } else if (i.scanner_type === 'tenable_sc') {
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+            <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+            <span>Tenable.sc</span>
+          </span>`;
+        } else if (i.scanner_type === 'tenable_nessus_pro') {
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
+            <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+            <span>Nessus Pro</span>
+          </span>`;
+        } else if (i.scanner_type === 'ms_defender') {
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30">
+            <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
+            <span>MS Defender</span>
+          </span>`;
+        } else if (i.scanner_type === 'openvas' || i.scanner_type === 'greenbone_gvm') {
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+            <i data-lucide="radio" class="w-3.5 h-3.5"></i>
+            <span>OpenVAS / GVM</span>
+          </span>`;
+        }
+
+        // Status Badge
+        const statusBadge = i.is_enabled
+          ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">Ativo</span>`
+          : `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-300 dark:border-slate-700">Inativo</span>`;
+
+        // Last Sync Badge & Details
+        let syncBadge = '';
+        if (i.last_sync_status === 'success') {
+          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
+            <i data-lucide="check-circle" class="w-3 h-3"></i>
+            <span>Sucesso</span>
+          </span>`;
+        } else if (i.last_sync_status === 'failure') {
+          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/30">
+            <i data-lucide="alert-circle" class="w-3 h-3"></i>
+            <span>Falha</span>
+          </span>`;
+        } else if (i.last_sync_status === 'running') {
+          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/30 animate-pulse">
+            <i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i>
+            <span>Sincronizando</span>
+          </span>`;
+        } else {
+          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/10 text-slate-500 border border-slate-500/30">
+            <span>Nunca executado</span>
+          </span>`;
+        }
+
+        const syncTelemetry = i.last_sync_at
+          ? `<div class="text-[10px] text-slate-400 mt-0.5">${i.last_sync_at_formatted || i.last_sync_at} • ${i.vulnerabilities_imported_count || 0} achados</div>`
+          : `<div class="text-[10px] text-slate-400 mt-0.5">Aguardando 1º ciclo</div>`;
+
+        // Schedule Label
+        const schedIcon = i.schedule_type === 'manual' ? 'hand' : i.schedule_type === 'interval' ? 'clock' : 'calendar';
+        const scheduleHtml = `<div class="flex items-center space-x-1.5 text-xs text-slate-700 dark:text-slate-300">
+          <i data-lucide="${schedIcon}" class="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0"></i>
+          <span>${this.escapeHtml(i.schedule_label || i.schedule_type)}</span>
+        </div>`;
+
+        // Subtitle endpoint or tenant
+        const endpointSubtitle = (i.scanner_type.startsWith('tenable') || i.scanner_type === 'openvas' || i.scanner_type === 'greenbone_gvm')
+          ? (i.api_endpoint || (i.scanner_type.includes('openvas') || i.scanner_type.includes('greenbone') ? '192.168.3.18:9390' : 'https://cloud.tenable.com'))
+          : (i.tenant_id ? `Tenant: ${i.tenant_id.slice(0, 8)}...` : 'Microsoft Entra ID');
+
+        const scopeSubtitle = i.target_scope_filter
+          ? `<span class="inline-flex items-center text-cyan-600 dark:text-cyan-400 font-semibold"><i data-lucide="filter" class="w-2.5 h-2.5 mr-0.5 inline"></i>Escopo: ${this.escapeHtml(i.target_scope_filter)}</span>`
+          : `<span class="text-slate-400">Escopo: Varredura recente</span>`;
+
+        html += `<tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
+          <td class="font-bold text-slate-800 dark:text-slate-200">
+            ${this.escapeHtml(i.asset_group_name)}
+          </td>
+          <td>
+            ${platformBadge}
+          </td>
+          <td>
+            <div class="font-semibold text-slate-800 dark:text-slate-200">${this.escapeHtml(i.name)}</div>
+            <div class="text-[10px] text-slate-400 font-mono truncate max-w-xs" title="${this.escapeHtml(endpointSubtitle)}">${this.escapeHtml(endpointSubtitle)}</div>
+            <div class="text-[10px] mt-0.5">${scopeSubtitle}</div>
+          </td>
+          <td>
+            ${scheduleHtml}
+          </td>
+          <td>
+            ${syncBadge}
+            ${syncTelemetry}
+          </td>
+          <td class="text-center">
+            ${statusBadge}
+          </td>
+          <td class="text-right">
+            <div class="flex items-center justify-end space-x-1">
+              <button onclick="App.testSavedIntegration(${i.id})" title="Testar Conectividade com Scanner" class="p-1.5 text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition cursor-pointer">
+                <i data-lucide="zap" class="w-4 h-4"></i>
+              </button>
+              <button onclick="App.syncIntegrationNow(${i.id})" title="Sincronizar Vulnerabilidades Agora" class="p-1.5 text-cyan-600 hover:text-cyan-700 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 rounded-lg transition cursor-pointer">
+                <i data-lucide="play" class="w-4 h-4"></i>
+              </button>
+              <button onclick="App.openEditScannerIntegrationModal(${i.id})" title="Editar Integração" class="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer">
+                <i data-lucide="edit-3" class="w-4 h-4"></i>
+              </button>
+              <button onclick="App.deleteScannerIntegration(${i.id}, '${this.escapeHtml(i.name)}')" title="Excluir Integração" class="p-1.5 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition cursor-pointer">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </td>
+        </tr>`;
+      });
+
+      tbody.innerHTML = html;
+      this.refreshIcons();
+    } catch (err) {
+      console.error('Error loading scanner integrations:', err);
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-rose-500 text-xs">Erro ao carregar integrações: ${this.escapeHtml(err.message)}</td></tr>`;
+      this.refreshIcons();
+    }
+  },
+
+  async loadSavedScannerCredentials(scannerType = '') {
+    try {
+      this.state.savedScannerCredentials = await API.getSavedScannerCredentials(scannerType);
+    } catch (e) {
+      console.warn('Erro ao carregar credenciais salvas de scanners:', e);
+      this.state.savedScannerCredentials = [];
+    }
+    return this.state.savedScannerCredentials;
+  },
+
+  populateSavedCredentialsDropdown(scannerType = null, currentEndpoint = null) {
+    const select = document.getElementById('integration-saved-cred-select');
+    const datalist = document.getElementById('saved-connectors-datalist');
+    const creds = this.state.savedScannerCredentials || [];
+
+    if (datalist) {
+      datalist.innerHTML = creds.map(c => 
+        `<option value="${this.escapeHtml(c.name)}">${this.escapeHtml(c.scanner_type_label || c.scanner_type)} [${this.escapeHtml(c.api_endpoint || '')}]</option>`
+      ).join('');
+    }
+
+    if (!select) return;
+
+    let html = '<option value="">📋 Já Cadastrados...</option>';
+
+    if (creds.length > 0) {
+      const matching = [];
+      const others = [];
+
+      creds.forEach(c => {
+        const matchesType = !scannerType || (scannerType.startsWith('tenable') && c.scanner_type.startsWith('tenable')) || (c.scanner_type === scannerType);
+        const matchesEp = currentEndpoint && c.api_endpoint && c.api_endpoint.toLowerCase().trim() === currentEndpoint.toLowerCase().trim();
+        if (matchesType || matchesEp) {
+          matching.push(c);
+        } else {
+          others.push(c);
+        }
+      });
+
+      if (matching.length > 0) {
+        html += `<optgroup label="Compatíveis / Mesmo Servidor">`;
+        matching.forEach(c => {
+          const ep = c.api_endpoint ? ` [${c.api_endpoint}]` : '';
+          const acc = c.account_identifier ? ` (${c.account_identifier})` : '';
+          html += `<option value="${c.id}">${this.escapeHtml(c.name)}${this.escapeHtml(ep)}${this.escapeHtml(acc)}</option>`;
+        });
+        html += `</optgroup>`;
+      }
+
+      if (others.length > 0) {
+        html += `<optgroup label="Outros Conectores Cadastrados">`;
+        others.forEach(c => {
+          const ep = c.api_endpoint ? ` [${c.api_endpoint}]` : '';
+          const acc = c.account_identifier ? ` (${c.account_identifier})` : '';
+          html += `<option value="${c.id}">${this.escapeHtml(c.name)} • ${c.scanner_type_label || c.scanner_type}${this.escapeHtml(ep)}${this.escapeHtml(acc)}</option>`;
+        });
+        html += `</optgroup>`;
+      }
+    }
+
+    select.innerHTML = html;
+    if (this.state.selectedCredentialSourceId) {
+      select.value = String(this.state.selectedCredentialSourceId);
+    }
+  },
+
+  applySavedCredential(c, updateNameInput = true) {
+    if (!c) return;
+    this.state.selectedCredentialSourceId = c.id;
+
+    if (updateNameInput) {
+      const nameInput = document.getElementById('integration-name');
+      if (nameInput) nameInput.value = c.name;
+    }
+
+    const badge = document.getElementById('saved-cred-badge');
+    const badgeText = document.getElementById('saved-cred-badge-text');
+    if (badge) {
+      badge.classList.remove('hidden');
+      if (badgeText) badgeText.textContent = `Herdado de "${c.name}"`;
+    }
+
+    // 1. Plataforma / Scanner
+    const typeSelect = document.getElementById('integration-scanner-type');
+    if (typeSelect && c.scanner_type && typeSelect.value !== c.scanner_type) {
+      if (typeSelect.querySelector(`option[value="${c.scanner_type}"]`)) {
+        typeSelect.value = c.scanner_type;
+        this.handleScannerTypeChange(true);
+      }
+    }
+
+    // 2. API Endpoint / Host
+    const epInput = document.getElementById('integration-api-endpoint');
+    if (epInput && c.api_endpoint) {
+      epInput.value = c.api_endpoint;
+    }
+
+    // 3. SSL Setting
+    const sslCb = document.getElementById('integration-verify-ssl');
+    if (sslCb && typeof c.verify_ssl === 'boolean') {
+      sslCb.checked = c.verify_ssl;
+    }
+
+    // 4. Access Key & Secret Key
+    if (c.scanner_type === 'ms_defender') {
+      const tenantInput = document.getElementById('integration-tenant-id');
+      const clientIdInput = document.getElementById('integration-client-id');
+      const clientSecInput = document.getElementById('integration-client-secret');
+      if (tenantInput && c.tenant_id) tenantInput.value = c.tenant_id;
+      if (clientIdInput && c.account_identifier) clientIdInput.value = c.account_identifier;
+      if (clientSecInput) {
+        clientSecInput.value = '';
+        clientSecInput.placeholder = `✓ Client Secret herdado de "${c.name}" (não precisa redigitar)`;
+      }
+    } else {
+      const accInput = document.getElementById('integration-access-key');
+      const secInput = document.getElementById('integration-secret-key');
+      if (accInput && c.account_identifier) accInput.value = c.account_identifier;
+      if (secInput) {
+        secInput.value = '';
+        secInput.placeholder = `✓ Senha/Secret herdado de "${c.name}" (não precisa redigitar)`;
+      }
+    }
+
+    this.refreshIcons();
+  },
+
+  handleSavedCredSelect() {
+    const select = document.getElementById('integration-saved-cred-select');
+    const badge = document.getElementById('saved-cred-badge');
+    const selectedId = select?.value ? parseInt(select.value) : null;
+
+    if (!selectedId) {
+      this.state.selectedCredentialSourceId = null;
+      if (badge) badge.classList.add('hidden');
+      const nameInput = document.getElementById('integration-name');
+      if (nameInput) nameInput.value = '';
+      this.handleScannerTypeChange(true);
+      return;
+    }
+
+    const c = (this.state.savedScannerCredentials || []).find(x => x.id === selectedId);
+    if (!c) return;
+
+    this.applySavedCredential(c, true);
+  },
+
+  handleIntegrationNameInput() {
+    const input = document.getElementById('integration-name');
+    const val = input?.value?.trim();
+    const select = document.getElementById('integration-saved-cred-select');
+    const badge = document.getElementById('saved-cred-badge');
+    const badgeText = document.getElementById('saved-cred-badge-text');
+
+    if (!val) {
+      if (this.state.selectedCredentialSourceId) {
+        this.state.selectedCredentialSourceId = null;
+        if (select) select.value = '';
+        if (badge) badge.classList.add('hidden');
+        this.handleScannerTypeChange(true);
+      }
+      return;
+    }
+
+    // Se o valor digitado corresponder exatamente ao nome de um conector cadastrado
+    const found = (this.state.savedScannerCredentials || []).find(
+      c => c.name.toLowerCase() === val.toLowerCase()
+    );
+
+    if (found) {
+      if (select) select.value = String(found.id);
+      this.applySavedCredential(found, false);
+    } else {
+      // Nome customizado digitado
+      if (this.state.selectedCredentialSourceId) {
+        const orig = (this.state.savedScannerCredentials || []).find(x => x.id === this.state.selectedCredentialSourceId);
+        if (badgeText && orig) {
+          badgeText.textContent = `Chaves de "${orig.name}"`;
+        }
+      }
+    }
+  },
+
+  handleEndpointChange() {
+    const scannerType = document.getElementById('integration-scanner-type')?.value;
+    const ep = document.getElementById('integration-api-endpoint')?.value;
+    this.populateSavedCredentialsDropdown(scannerType, ep);
+  },
+
+  async openCreateScannerIntegrationModal(targetGroupId = '') {
+    const modal = document.getElementById('scanner-integration-modal');
+    if (!modal) return;
+
+    this.state.selectedCredentialSourceId = null;
+    const badge = document.getElementById('saved-cred-badge');
+    if (badge) badge.classList.add('hidden');
+
+    document.getElementById('integration-modal-title').innerHTML = `
+      <i data-lucide="cloud-lightning" class="w-5 h-5 text-cyan-600 dark:text-cyan-400"></i>
+      <span>Nova Integração de Scanner</span>
+    `;
+    document.getElementById('integration-modal-id').value = '';
+
+    // Carrega credenciais salvas para seleção
+    await this.loadSavedScannerCredentials();
+    this.populateSavedCredentialsDropdown('tenable_io');
+
+    // Populate Groups
+    const groupSelect = document.getElementById('integration-group-id');
+    if (groupSelect) {
+      if (!this.state.assetGroups || this.state.assetGroups.length === 0) {
+        this.state.assetGroups = await API.listAssetGroups();
+      }
+      let opts = '<option value="">Selecione o Grupo de Ativos...</option>';
+      (this.state.assetGroups || []).forEach(g => {
+        opts += `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`;
+      });
+      groupSelect.innerHTML = opts;
+      if (targetGroupId) {
+        groupSelect.value = targetGroupId;
+      }
+    }
+
+    // Reset Form Fields
+    document.getElementById('integration-name').value = '';
+    const selCredInit = document.getElementById('integration-saved-cred-select');
+    if (selCredInit) selCredInit.value = '';
+    document.getElementById('integration-scanner-type').value = 'tenable_io';
+    document.getElementById('integration-is-enabled').checked = true;
+    const newScopeInput = document.getElementById('integration-target-scope');
+    if (newScopeInput) newScopeInput.value = '';
+
+    // Tenable
+    document.getElementById('integration-api-endpoint').value = 'https://cloud.tenable.com';
+    document.getElementById('integration-access-key').value = '';
+    document.getElementById('integration-access-key').placeholder = 'Insira a Access Key da conta de serviço';
+    document.getElementById('integration-secret-key').value = '';
+    document.getElementById('integration-secret-key').placeholder = 'Insira a Secret Key';
+    document.getElementById('integration-verify-ssl').checked = true;
+
+    // Defender
+    document.getElementById('integration-tenant-id').value = '';
+    document.getElementById('integration-client-id').value = '';
+    document.getElementById('integration-client-secret').value = '';
+    document.getElementById('integration-client-secret').placeholder = 'Insira o Client Secret gerado';
+
+    // Schedule
+    document.getElementById('integration-schedule-type').value = 'interval';
+    document.getElementById('integration-interval-hours').value = '12';
+    document.getElementById('integration-schedule-time').value = '03:00';
+
+    // Weekly checkboxes (check Mon-Fri)
+    document.querySelectorAll('input[name="integration-day"]').forEach(cb => {
+      cb.checked = parseInt(cb.value) <= 5;
+    });
+
+    // Feedback
+    const fb = document.getElementById('integration-test-feedback');
+    if (fb) fb.classList.add('hidden');
+
+    this.handleScannerTypeChange();
+    if (this.state.currentTab !== 'scannerIntegrations') {
+      this.switchTab('scannerIntegrations');
+    }
+    document.getElementById('scanner-integrations-list-view')?.classList.add('hidden');
+    document.getElementById('modal-jobs-history')?.classList.add('hidden');
+    modal.classList.remove('hidden');
+    this.refreshIcons();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  },
+
+  async openEditScannerIntegrationModal(id) {
+    const modal = document.getElementById('scanner-integration-modal');
+    if (!modal) return;
+
+    try {
+      const integ = await API.getScannerIntegration(id);
+      if (!integ) return;
+
+      document.getElementById('integration-modal-title').innerHTML = `
+        <i data-lucide="cloud-lightning" class="w-5 h-5 text-cyan-600 dark:text-cyan-400"></i>
+        <span>Editar Integração: ${this.escapeHtml(integ.name)}</span>
+      `;
+      document.getElementById('integration-modal-id').value = integ.id;
+
+      this.state.selectedCredentialSourceId = null;
+      const badge = document.getElementById('saved-cred-badge');
+      if (badge) badge.classList.add('hidden');
+      await this.loadSavedScannerCredentials();
+      this.populateSavedCredentialsDropdown(integ.scanner_type, integ.api_endpoint);
+
+      // Populate Groups
+      const groupSelect = document.getElementById('integration-group-id');
+      if (groupSelect) {
+        if (!this.state.assetGroups || this.state.assetGroups.length === 0) {
+          this.state.assetGroups = await API.listAssetGroups();
+        }
+        let opts = '<option value="">Selecione o Grupo de Ativos...</option>';
+        (this.state.assetGroups || []).forEach(g => {
+          opts += `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`;
+        });
+        groupSelect.innerHTML = opts;
+        groupSelect.value = integ.asset_group_id;
+      }
+
+      document.getElementById('integration-name').value = integ.name;
+      const selCredEdit = document.getElementById('integration-saved-cred-select');
+      if (selCredEdit) {
+        const match = (this.state.savedScannerCredentials || []).find(x => x.id === integ.id);
+        if (match) selCredEdit.value = String(match.id);
+        else selCredEdit.value = '';
+      }
+      document.getElementById('integration-scanner-type').value = integ.scanner_type;
+      document.getElementById('integration-is-enabled').checked = Boolean(integ.is_enabled);
+      const editScopeInput = document.getElementById('integration-target-scope');
+      if (editScopeInput) editScopeInput.value = integ.target_scope_filter || '';
+
+      // Tenable / OpenVAS
+      document.getElementById('integration-api-endpoint').value = integ.api_endpoint || (integ.scanner_type === 'openvas' ? '192.168.3.18:9390' : 'https://cloud.tenable.com');
+      document.getElementById('integration-access-key').value = '';
+      document.getElementById('integration-access-key').placeholder = integ.access_key_masked ? `Atual: ${integ.access_key_masked} (deixe em branco p/ manter)` : (integ.scanner_type === 'openvas' ? 'Usuário do OpenVAS / GVM (ex: admin)' : 'Insira a Access Key');
+      document.getElementById('integration-secret-key').value = '';
+      document.getElementById('integration-secret-key').placeholder = integ.has_secret_key ? 'Manter segredo/senha atual (deixe em branco)' : (integ.scanner_type === 'openvas' ? 'Senha do usuário do OpenVAS' : 'Insira a Secret Key');
+      document.getElementById('integration-verify-ssl').checked = integ.verify_ssl !== false;
+
+      // Defender
+      document.getElementById('integration-tenant-id').value = integ.tenant_id || '';
+      document.getElementById('integration-client-id').value = integ.client_id || '';
+      document.getElementById('integration-client-secret').value = '';
+      document.getElementById('integration-client-secret').placeholder = integ.has_client_secret ? 'Manter secret atual (deixe em branco)' : 'Insira o Client Secret';
+
+      // Schedule
+      document.getElementById('integration-schedule-type').value = integ.schedule_type || 'interval';
+      document.getElementById('integration-interval-hours').value = String(integ.interval_hours || 12);
+      document.getElementById('integration-schedule-time').value = integ.schedule_time || '03:00';
+
+      const scheduledDays = (integ.schedule_days || '1,2,3,4,5').split(',').map(s => s.trim());
+      document.querySelectorAll('input[name="integration-day"]').forEach(cb => {
+        cb.checked = scheduledDays.includes(cb.value);
+      });
+
+      // Feedback
+      const fb = document.getElementById('integration-test-feedback');
+      if (fb) fb.classList.add('hidden');
+
+      this.handleScannerTypeChange(true);
+      if (this.state.currentTab !== 'scannerIntegrations') {
+        this.switchTab('scannerIntegrations');
+      }
+      document.getElementById('scanner-integrations-list-view')?.classList.add('hidden');
+      document.getElementById('modal-jobs-history')?.classList.add('hidden');
+      modal.classList.remove('hidden');
+      this.refreshIcons();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      alert(`Erro ao abrir integração: ${err.message}`);
+    }
+  },
+
+  closeScannerIntegrationModal() {
+    const modal = document.getElementById('scanner-integration-modal');
+    if (modal) modal.classList.add('hidden');
+    document.getElementById('scanner-integrations-list-view')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  },
+
+  handleScannerTypeChange(preserveSslSetting = false) {
+    const scannerType = document.getElementById('integration-scanner-type')?.value;
+    const tenableFields = document.getElementById('integration-tenable-fields');
+    const defenderFields = document.getElementById('integration-defender-fields');
+    const endpointInput = document.getElementById('integration-api-endpoint');
+    const endpointLabel = document.getElementById('integration-endpoint-label');
+    const credTitle = document.getElementById('integration-credentials-title');
+    const credIcon = document.getElementById('integration-credentials-icon');
+    const credHeader = document.getElementById('integration-credentials-header');
+    const accessKeyLabel = document.getElementById('integration-access-key-label');
+    const secretKeyLabel = document.getElementById('integration-secret-key-label');
+    const accessKeyInput = document.getElementById('integration-access-key');
+    const secretKeyInput = document.getElementById('integration-secret-key');
+    const verifySslCb = document.getElementById('integration-verify-ssl');
+    const sslHint = document.getElementById('integration-ssl-hint');
+    const sslHintText = document.getElementById('integration-ssl-hint-text');
+    const scopeLabel = document.getElementById('integration-target-scope-label');
+    const scopeInput = document.getElementById('integration-target-scope');
+    const scopeHelp = document.getElementById('integration-target-scope-help');
+
+    if (scannerType === 'ms_defender') {
+      if (tenableFields) tenableFields.classList.add('hidden');
+      if (defenderFields) defenderFields.classList.remove('hidden');
+
+      if (scopeLabel) {
+        const span = scopeLabel.querySelector('span');
+        if (span) span.textContent = 'Filtro de Grupo de Dispositivos / Tag no Defender (Opcional)';
+      }
+      if (scopeInput) scopeInput.placeholder = "Nome do Device Group ou Tag (ex: 'Servidores-Linux', 'Producao')";
+      if (scopeHelp) scopeHelp.textContent = 'Importa apenas os ativos e vulnerabilidades do Microsoft Defender vinculados a este Device Group (rbacGroupName) ou Machine Tag.';
+    } else if (scannerType === 'openvas') {
+      if (tenableFields) tenableFields.classList.remove('hidden');
+      if (defenderFields) defenderFields.classList.add('hidden');
+
+      if (credHeader) {
+        credHeader.className = 'font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-2';
+      }
+      if (credTitle) credTitle.textContent = 'Credenciais & Parâmetros OpenVAS / Greenbone (GMP)';
+      if (credIcon) credIcon.setAttribute('data-lucide', 'radio');
+
+      if (endpointLabel) endpointLabel.textContent = 'Host / Endereço IP e Porta (GMP) *';
+      if (accessKeyLabel) accessKeyLabel.textContent = 'Usuário (Username) *';
+      if (secretKeyLabel) secretKeyLabel.textContent = 'Senha (Password) *';
+
+      if (scopeLabel) {
+        const span = scopeLabel.querySelector('span');
+        if (span) span.textContent = 'Nome ou ID da Tarefa no OpenVAS (Opcional)';
+      }
+      if (scopeInput) scopeInput.placeholder = "Nome exato da tarefa ou UUID (ex: 'Immediate scan of IP', 'Home_Scan')";
+      if (scopeHelp) scopeHelp.textContent = 'Define qual tarefa concluída do OpenVAS/Greenbone terá seu último relatório importado. Se em branco, importará a tarefa concluída mais recente.';
+
+      if (accessKeyInput) accessKeyInput.placeholder = 'Usuário do OpenVAS / GVM (ex: admin)';
+      if (secretKeyInput) secretKeyInput.placeholder = 'Senha do usuário do OpenVAS';
+
+      if (endpointInput) {
+        endpointInput.placeholder = '192.168.3.18:9390 ou openvas-host:9390';
+        if (!endpointInput.value || endpointInput.value.includes('cloud.tenable.com') || endpointInput.value.includes('8834')) {
+          endpointInput.value = '192.168.3.18:9390';
+        }
+      }
+
+      if (!preserveSslSetting && verifySslCb) {
+        verifySslCb.checked = false;
+      }
+
+      if (sslHint) {
+        sslHint.classList.remove('hidden');
+        if (sslHintText) {
+          sslHintText.innerHTML = '<strong>Atenção para Certificados OpenVAS/GMP:</strong> Instâncias locais do Greenbone utilizam certificado TLS autoassinado por padrão. Mantenha esta opção desmarcada para evitar erros de validação SSL.';
+        }
+      }
+    } else {
+      if (tenableFields) tenableFields.classList.remove('hidden');
+      if (defenderFields) defenderFields.classList.add('hidden');
+
+      if (credHeader) {
+        credHeader.className = 'font-bold text-blue-600 dark:text-blue-400 flex items-center space-x-2';
+      }
+      if (credTitle) credTitle.textContent = 'Credenciais & Parâmetros Tenable';
+      if (credIcon) credIcon.setAttribute('data-lucide', 'shield');
+
+      if (endpointLabel) endpointLabel.textContent = 'API Endpoint / Host *';
+      if (accessKeyLabel) accessKeyLabel.textContent = 'Access Key *';
+      if (secretKeyLabel) secretKeyLabel.textContent = 'Secret Key *';
+
+      if (accessKeyInput) accessKeyInput.placeholder = 'Insira a Access Key da conta de serviço';
+      if (secretKeyInput) secretKeyInput.placeholder = 'Insira a Secret Key';
+
+      if (scopeLabel) {
+        const span = scopeLabel.querySelector('span');
+        if (span) span.textContent = 'Nome ou ID da Varredura no Tenable/Nessus (Opcional)';
+      }
+      if (scopeInput) scopeInput.placeholder = "Nome exato da varredura, ID ou grupo (ex: 'Scan DMZ', '192.168.3.0/24' ou ID 14)";
+      if (scopeHelp) scopeHelp.textContent = 'Define qual varredura específica no Tenable/Nessus deve ser importada para este Grupo de Ativos. Se em branco, importará a varredura concluída mais recente.';
+
+      if (endpointInput) {
+        endpointInput.placeholder = 'https://cloud.tenable.com ou https://host-local:8834';
+        if (scannerType === 'tenable_io' && (!endpointInput.value || endpointInput.value.includes('localhost') || endpointInput.value.includes('8834') || endpointInput.value.includes('9390'))) {
+          endpointInput.value = 'https://cloud.tenable.com';
+        } else if (scannerType === 'tenable_nessus_pro' && (endpointInput.value === 'https://cloud.tenable.com' || endpointInput.value.includes('9390'))) {
+          endpointInput.value = 'https://127.0.0.1:8834';
+        }
+      }
+
+      if (!preserveSslSetting && verifySslCb) {
+        if (scannerType === 'tenable_nessus_pro' || scannerType === 'tenable_sc') {
+          verifySslCb.checked = false;
+        } else if (scannerType === 'tenable_io') {
+          verifySslCb.checked = true;
+        }
+      }
+
+      if (sslHint) {
+        if (sslHintText) {
+          sslHintText.innerHTML = '<strong>Atenção para Nessus Local:</strong> Instâncias locais do Nessus utilizam certificado HTTPS autoassinado por padrão. Mantenha esta opção desmarcada para evitar erros de validação SSL.';
+        }
+        if (scannerType === 'tenable_nessus_pro' || scannerType === 'tenable_sc') {
+          sslHint.classList.remove('hidden');
+        } else {
+          sslHint.classList.add('hidden');
+        }
+      }
+    }
+
+    // Sincroniza e filtra o dropdown de credenciais salvas para o scanner ativo
+    const selCred = (this.state.savedScannerCredentials || []).find(x => x.id === this.state.selectedCredentialSourceId);
+    if (selCred) {
+      const compatible = (scannerType && scannerType.startsWith('tenable') && selCred.scanner_type.startsWith('tenable')) || (selCred.scanner_type === scannerType);
+      if (!compatible) {
+        this.state.selectedCredentialSourceId = null;
+        const badge = document.getElementById('saved-cred-badge');
+        if (badge) badge.classList.add('hidden');
+      }
+    }
+    this.populateSavedCredentialsDropdown(scannerType, endpointInput?.value);
+    this.refreshIcons();
+  },
+
+  handleScheduleTypeChange() {
+    const schedType = document.getElementById('integration-schedule-type')?.value;
+    const intervalBox = document.getElementById('integration-interval-container');
+    const timeBox = document.getElementById('integration-time-container');
+    const weeklyBox = document.getElementById('integration-weekly-days-container');
+
+    if (schedType === 'interval') {
+      if (intervalBox) intervalBox.classList.remove('hidden');
+      if (timeBox) timeBox.classList.add('hidden');
+      if (weeklyBox) weeklyBox.classList.add('hidden');
+    } else if (schedType === 'daily') {
+      if (intervalBox) intervalBox.classList.add('hidden');
+      if (timeBox) timeBox.classList.remove('hidden');
+      if (weeklyBox) weeklyBox.classList.add('hidden');
+    } else if (schedType === 'weekly') {
+      if (intervalBox) intervalBox.classList.add('hidden');
+      if (timeBox) timeBox.classList.remove('hidden');
+      if (weeklyBox) weeklyBox.classList.remove('hidden');
+    } else { // manual
+      if (intervalBox) intervalBox.classList.add('hidden');
+      if (timeBox) timeBox.classList.add('hidden');
+      if (weeklyBox) weeklyBox.classList.add('hidden');
+    }
+    this.refreshIcons();
+  },
+
+  async testCurrentModalIntegration() {
+    const btn = document.getElementById('btn-test-modal-connection');
+    const textSpan = document.getElementById('btn-test-modal-text');
+    const feedback = document.getElementById('integration-test-feedback');
+    const feedbackTitle = document.getElementById('integration-test-feedback-title');
+    const feedbackMsg = document.getElementById('integration-test-feedback-msg');
+
+    const scannerType = document.getElementById('integration-scanner-type')?.value;
+    const payload = {
+      scanner_type: scannerType
+    };
+
+    if (this.state.selectedCredentialSourceId) {
+      payload.use_credentials_from_id = this.state.selectedCredentialSourceId;
+    }
+
+    if (scannerType.startsWith('tenable')) {
+      payload.api_endpoint = document.getElementById('integration-api-endpoint')?.value || 'https://cloud.tenable.com';
+      payload.access_key = document.getElementById('integration-access-key')?.value || '';
+      payload.secret_key = document.getElementById('integration-secret-key')?.value || '';
+      payload.verify_ssl = document.getElementById('integration-verify-ssl')?.checked !== false;
+
+      // If keys are empty, not reusing another credential, and editing an existing integration, test saved
+      const integId = document.getElementById('integration-modal-id')?.value;
+      if (!payload.use_credentials_from_id && integId && (!payload.access_key || !payload.secret_key)) {
+        return this.testSavedIntegration(integId);
+      }
+    } else if (scannerType === 'openvas') {
+      payload.api_endpoint = document.getElementById('integration-api-endpoint')?.value.trim() || '192.168.3.18:9390';
+      payload.access_key = document.getElementById('integration-access-key')?.value.trim() || '';
+      payload.secret_key = document.getElementById('integration-secret-key')?.value || '';
+      payload.verify_ssl = document.getElementById('integration-verify-ssl')?.checked !== false;
+
+      const integId = document.getElementById('integration-modal-id')?.value;
+      if (!payload.use_credentials_from_id && integId && (!payload.access_key || !payload.secret_key)) {
+        return this.testSavedIntegration(integId);
+      }
+    } else if (scannerType === 'ms_defender') {
+      payload.tenant_id = document.getElementById('integration-tenant-id')?.value || '';
+      payload.client_id = document.getElementById('integration-client-id')?.value || '';
+      payload.client_secret = document.getElementById('integration-client-secret')?.value || '';
+
+      const integId = document.getElementById('integration-modal-id')?.value;
+      if (!payload.use_credentials_from_id && integId && (!payload.tenant_id || !payload.client_id || !payload.client_secret)) {
+        return this.testSavedIntegration(integId);
+      }
+    }
+
+    if (btn) btn.disabled = true;
+    if (textSpan) textSpan.textContent = 'Testando Conectividade...';
+    if (feedback) feedback.classList.add('hidden');
+
+    try {
+      const res = await API.testScannerIntegrationTransient(payload);
+      if (feedback && feedbackTitle && feedbackMsg) {
+        feedback.className = res.success
+          ? 'p-3.5 rounded-xl text-xs space-y-1 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+          : 'p-3.5 rounded-xl text-xs space-y-1 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200';
+        
+        const icon = res.success ? 'check-circle' : 'alert-triangle';
+        feedbackTitle.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4"></i><span>${res.success ? 'Conexão Estabelecida com Sucesso!' : 'Falha na Conexão'}</span>`;
+        
+        let details = res.message || '';
+        if (res.latency_ms) details += ` (Tempo de resposta: ${res.latency_ms} ms)`;
+        if (res.details && res.details.version) details += ` • Versão: ${res.details.version}`;
+        feedbackMsg.textContent = details;
+        feedback.classList.remove('hidden');
+        this.refreshIcons();
+      }
+    } catch (err) {
+      if (feedback && feedbackTitle && feedbackMsg) {
+        feedback.className = 'p-3.5 rounded-xl text-xs space-y-1 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200';
+        feedbackTitle.innerHTML = '<i data-lucide="alert-triangle" class="w-4 h-4"></i><span>Erro na Conexão</span>';
+        feedbackMsg.textContent = err.message;
+        feedback.classList.remove('hidden');
+        this.refreshIcons();
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+      if (textSpan) textSpan.textContent = 'Testar Conexão';
+    }
+  },
+
+  async testSavedIntegration(id) {
+    try {
+      const res = await API.testScannerIntegrationSaved(id);
+      const latency = res.latency_ms ? ` (${res.latency_ms}ms)` : '';
+      if (res.success) {
+        alert(`✓ Conexão bem-sucedida!${latency}\n${res.message}`);
+      } else {
+        alert(`✕ Falha no teste de conexão:${latency}\n${res.message}`);
+      }
+    } catch (err) {
+      alert(`Erro ao testar conexão: ${err.message}`);
+    }
+  },
+
+  async syncIntegrationNow(id) {
+    if (!confirm('Deseja disparar a sincronização imediata de vulnerabilidades para esta integração agora?')) {
+      return;
+    }
+
+    try {
+      const res = await API.syncScannerIntegrationNow(id, true);
+      if (res && res.job_id) {
+        this.trackJobProgress(res.job_id, 'Sincronização API Scanner', () => {
+          this.loadScannerIntegrations();
+          this.loadScansTable();
+          this.loadDashboardData();
+        });
+      } else if (res && res.success) {
+        alert(`✓ Sincronização concluída com sucesso!\n\n• Achados importados: ${res.vulnerabilities_count}\n• Hosts processados: ${res.hosts_count}\n• Scan de Governança criado: #${res.scan_id}`);
+        this.loadScannerIntegrations();
+        this.loadScansTable();
+        this.loadDashboardData();
+      } else {
+        alert(`✕ A sincronização reportou falha:\n${res.error || res.message}`);
+        this.loadScannerIntegrations();
+      }
+    } catch (err) {
+      alert(`Erro ao sincronizar integração: ${err.message}`);
+      this.loadScannerIntegrations();
+    }
+  },
+
+  async saveScannerIntegration(e) {
+    e.preventDefault();
+
+    const integId = document.getElementById('integration-modal-id')?.value;
+    const assetGroupId = parseInt(document.getElementById('integration-group-id')?.value);
+    const name = document.getElementById('integration-name')?.value.trim();
+    const scannerType = document.getElementById('integration-scanner-type')?.value;
+    const isEnabled = document.getElementById('integration-is-enabled')?.checked;
+
+    if (!assetGroupId) {
+      alert('Selecione o Grupo de Ativos alvo.');
+      return;
+    }
+    if (!name) {
+      alert('Informe o nome identificador do conector.');
+      return;
+    }
+
+    const payload = {
+      asset_group_id: assetGroupId,
+      name,
+      scanner_type: scannerType,
+      is_enabled: isEnabled,
+      target_scope_filter: document.getElementById('integration-target-scope')?.value.trim() || null,
+      schedule_type: document.getElementById('integration-schedule-type')?.value || 'interval',
+      interval_hours: parseInt(document.getElementById('integration-interval-hours')?.value || '12'),
+      schedule_time: document.getElementById('integration-schedule-time')?.value || '03:00'
+    };
+
+    if (this.state.selectedCredentialSourceId) {
+      payload.use_credentials_from_id = this.state.selectedCredentialSourceId;
+    }
+
+    // Days for weekly
+    const selectedDays = [];
+    document.querySelectorAll('input[name="integration-day"]:checked').forEach(cb => {
+      selectedDays.push(cb.value);
+    });
+    payload.schedule_days = selectedDays.join(',') || '1,2,3,4,5';
+
+    if (scannerType.startsWith('tenable')) {
+      payload.api_endpoint = document.getElementById('integration-api-endpoint')?.value.trim() || 'https://cloud.tenable.com';
+      payload.verify_ssl = document.getElementById('integration-verify-ssl')?.checked !== false;
+
+      const accKey = document.getElementById('integration-access-key')?.value.trim();
+      const secKey = document.getElementById('integration-secret-key')?.value.trim();
+
+      if (!integId && !payload.use_credentials_from_id && (!accKey || !secKey)) {
+        alert('Access Key e Secret Key são obrigatórias para criar uma conexão Tenable.');
+        return;
+      }
+      if (accKey) payload.access_key = accKey;
+      if (secKey) payload.secret_key = secKey;
+    } else if (scannerType === 'openvas') {
+      payload.api_endpoint = document.getElementById('integration-api-endpoint')?.value.trim() || '192.168.3.18:9390';
+      payload.verify_ssl = document.getElementById('integration-verify-ssl')?.checked !== false;
+
+      const accKey = document.getElementById('integration-access-key')?.value.trim();
+      const secKey = document.getElementById('integration-secret-key')?.value;
+
+      if (!integId && !payload.use_credentials_from_id && (!accKey || !secKey)) {
+        alert('Usuário e Senha são obrigatórios para criar uma conexão com OpenVAS / Greenbone.');
+        return;
+      }
+      if (accKey) payload.access_key = accKey;
+      if (secKey) payload.secret_key = secKey;
+    } else if (scannerType === 'ms_defender') {
+      const tenantId = document.getElementById('integration-tenant-id')?.value.trim();
+      const clientId = document.getElementById('integration-client-id')?.value.trim();
+      const clientSecret = document.getElementById('integration-client-secret')?.value.trim();
+
+      if (!integId && !payload.use_credentials_from_id && (!tenantId || !clientId || !clientSecret)) {
+        alert('Tenant ID, Client ID e Client Secret são obrigatórios para criar uma conexão com Microsoft Defender.');
+        return;
+      }
+      if (tenantId) payload.tenant_id = tenantId;
+      if (clientId) payload.client_id = clientId;
+      if (clientSecret) payload.client_secret = clientSecret;
+    }
+
+    const saveBtn = document.getElementById('btn-save-integration');
+    const saveText = document.getElementById('btn-save-integration-text');
+    if (saveBtn) saveBtn.disabled = true;
+    if (saveText) saveText.textContent = 'Salvando...';
+
+    try {
+      if (integId) {
+        await API.updateScannerIntegration(integId, payload);
+      } else {
+        await API.createScannerIntegration(payload);
+      }
+      this.closeScannerIntegrationModal();
+      this.loadScannerIntegrations();
+    } catch (err) {
+      alert(`Erro ao salvar integração: ${err.message}`);
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+      if (saveText) saveText.textContent = 'Salvar Conexão';
+    }
+  },
+
+  async deleteScannerIntegration(id, name) {
+    if (!confirm(`Deseja realmente remover a integração "${name}"?\nEsta ação interromperá as sincronizações programadas para este grupo.`)) {
+      return;
+    }
+
+    try {
+      await API.deleteScannerIntegration(id);
+      this.loadScannerIntegrations();
+    } catch (err) {
+      alert(`Erro ao remover integração: ${err.message}`);
+    }
+  },
+
+  // ==========================================
+  // FILA DE TRABALHOS & HISTÓRICO DE JOBS (OPÇÃO A)
+  // ==========================================
+  startJobsPolling() {
+    if (this._jobsInterval) clearInterval(this._jobsInterval);
+    this._jobsInterval = setInterval(() => {
+      if (this.state && this.state.user) {
+        this.checkActiveJobs();
+      }
+    }, 6000);
+  },
+
+  trackJobProgress(jobId, jobTitle = 'Importação de Dados', onCompleteCallback = null) {
+    const card = document.getElementById('floating-job-progress');
+    const titleEl = document.getElementById('floating-progress-title');
+    const subEl = document.getElementById('floating-progress-subtitle');
+    const stepEl = document.getElementById('floating-progress-step');
+    const pctEl = document.getElementById('floating-progress-pct');
+    const barEl = document.getElementById('floating-progress-bar');
+    const timeEl = document.getElementById('floating-progress-time');
+    const iconEl = document.getElementById('floating-progress-icon');
+
+    if (!card) return;
+
+    card.classList.remove('hidden');
+    if (titleEl) titleEl.textContent = jobTitle;
+    if (subEl) subEl.textContent = `Tarefa #${jobId} em execução`;
+    if (stepEl) stepEl.textContent = 'Aguardando na fila de processamento...';
+    if (pctEl) pctEl.textContent = '0%';
+    if (barEl) barEl.style.width = '0%';
+    if (timeEl) timeEl.textContent = 'Iniciando...';
+    if (iconEl) iconEl.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin text-[#0F766E] dark:text-teal-400"></i>';
+    this.refreshIcons();
+
+    this.checkActiveJobs();
+
+    if (this._trackingIntervals && this._trackingIntervals[jobId]) {
+      clearInterval(this._trackingIntervals[jobId]);
+    }
+    if (!this._trackingIntervals) this._trackingIntervals = {};
+
+    const startTime = Date.now();
+
+    this._trackingIntervals[jobId] = setInterval(async () => {
+      try {
+        const job = await API.getJob(jobId);
+        const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+        if (timeEl) timeEl.textContent = `${elapsedSec}s decorridos`;
+
+        if (pctEl) pctEl.textContent = `${job.progress_percent || 0}%`;
+        if (barEl) barEl.style.width = `${job.progress_percent || 0}%`;
+        if (stepEl) stepEl.textContent = job.progress_message || 'Processando dados...';
+
+        if (job.status === 'completed') {
+          clearInterval(this._trackingIntervals[jobId]);
+          delete this._trackingIntervals[jobId];
+          if (titleEl) titleEl.textContent = '✓ Concluído com Sucesso!';
+          if (subEl) subEl.textContent = `Scan #${job.scan_id || jobId} gerado`;
+          if (stepEl) stepEl.textContent = `${job.hosts_count || 0} hosts e ${job.findings_count || 0} achados importados (${job.duration_seconds || elapsedSec}s)`;
+          if (iconEl) iconEl.innerHTML = '<i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>';
+          this.refreshIcons();
+          this.checkActiveJobs();
+
+          if (typeof onCompleteCallback === 'function') {
+            onCompleteCallback(job);
+          }
+
+          setTimeout(() => {
+            if (card && (!this._trackingIntervals || Object.keys(this._trackingIntervals).length === 0)) {
+              card.classList.add('hidden');
+            }
+          }, 6000);
+        } else if (job.status === 'failed') {
+          clearInterval(this._trackingIntervals[jobId]);
+          delete this._trackingIntervals[jobId];
+          if (titleEl) titleEl.textContent = '✕ Falha na Importação';
+          if (subEl) subEl.textContent = `Erro na tarefa #${jobId}`;
+          if (stepEl) stepEl.textContent = job.error_message || job.progress_message || 'Erro durante o processamento.';
+          if (iconEl) iconEl.innerHTML = '<i data-lucide="alert-triangle" class="w-4 h-4 text-rose-500"></i>';
+          this.refreshIcons();
+          this.checkActiveJobs();
+        } else if (job.status === 'cancelled') {
+          clearInterval(this._trackingIntervals[jobId]);
+          delete this._trackingIntervals[jobId];
+          if (titleEl) titleEl.textContent = 'Tarefa Cancelada';
+          if (subEl) subEl.textContent = `Cancelado pelo usuário`;
+          if (iconEl) iconEl.innerHTML = '<i data-lucide="x-circle" class="w-4 h-4 text-slate-400"></i>';
+          this.refreshIcons();
+          this.checkActiveJobs();
+        }
+      } catch (err) {
+        console.error('Erro ao consultar progresso do job:', err);
+      }
+    }, 1200);
+  },
+
+  minimizeFloatingProgress() {
+    const card = document.getElementById('floating-job-progress');
+    if (card) card.classList.add('hidden');
+  },
+
+  openJobsModal() {
+    if (this.state.currentTab !== 'scannerIntegrations') {
+      this.switchTab('scannerIntegrations');
+    }
+    document.getElementById('scanner-integrations-list-view')?.classList.add('hidden');
+    document.getElementById('scanner-integration-modal')?.classList.add('hidden');
+    const modal = document.getElementById('modal-jobs-history');
+    if (modal) modal.classList.remove('hidden');
+    this.loadJobsTable();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  },
+
+  closeJobsModal() {
+    const modal = document.getElementById('modal-jobs-history');
+    if (modal) modal.classList.add('hidden');
+    document.getElementById('scanner-integrations-list-view')?.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  },
+
+  async loadJobsTable() {
+    const tbody = document.getElementById('jobs-table-body');
+    const statusFilter = document.getElementById('jobs-filter-status')?.value || '';
+    const typeFilter = document.getElementById('jobs-filter-type')?.value || '';
+    const pillsContainer = document.getElementById('jobs-summary-pills');
+
+    if (!tbody) return;
+
+    try {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" class="py-8 text-center text-slate-400">
+            <i data-lucide="loader-2" class="w-6 h-6 animate-spin mx-auto mb-2 text-[#0F766E] dark:text-teal-400"></i>
+            <span>Carregando tarefas da fila...</span>
+          </td>
+        </tr>
+      `;
+      this.refreshIcons();
+
+      const params = {};
+      if (statusFilter) params.status = statusFilter;
+      if (typeFilter) params.job_type = typeFilter;
+      if (this.state && this.state.selectedAssetGroupId) params.asset_group_id = this.state.selectedAssetGroupId;
+      params.limit = 50;
+
+      const jobs = await API.listJobs(params);
+
+      // Atualiza badges
+      const queuedCount = jobs.filter(j => j.status === 'queued').length;
+      const runningCount = jobs.filter(j => j.status === 'running').length;
+      const completedCount = jobs.filter(j => j.status === 'completed').length;
+      const failedCount = jobs.filter(j => j.status === 'failed').length;
+
+      if (pillsContainer) {
+        pillsContainer.innerHTML = `
+          <span class="inline-flex items-center space-x-1"><strong class="text-amber-500 font-bold">${queuedCount}</strong> na fila</span>
+          <span class="inline-flex items-center space-x-1"><strong class="text-sky-500 font-bold">${runningCount}</strong> executando</span>
+          <span class="inline-flex items-center space-x-1"><strong class="text-emerald-500 font-bold">${completedCount}</strong> concluídos</span>
+          <span class="inline-flex items-center space-x-1"><strong class="text-rose-500 font-bold">${failedCount}</strong> falhas</span>
+        `;
+      }
+
+      if (!jobs || jobs.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="py-8 text-center text-slate-400">
+              <i data-lucide="inbox" class="w-6 h-6 mx-auto mb-2 opacity-50"></i>
+              <span>Nenhuma tarefa encontrada na fila ou histórico.</span>
+            </td>
+          </tr>
+        `;
+        this.refreshIcons();
+        return;
+      }
+
+      const rowsHtml = jobs.map(j => {
+        let statusBadge = '';
+        if (j.status === 'queued') {
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30 flex items-center space-x-1 w-max"><i data-lucide="clock" class="w-3 h-3"></i><span>Na Fila</span></span>`;
+        } else if (j.status === 'running') {
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-500 border border-sky-500/30 flex items-center space-x-1 w-max animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Processando (${j.progress_percent}%)</span></span>`;
+        } else if (j.status === 'completed') {
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 flex items-center space-x-1 w-max"><i data-lucide="check" class="w-3 h-3"></i><span>Concluído</span></span>`;
+        } else if (j.status === 'failed') {
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30 flex items-center space-x-1 w-max"><i data-lucide="alert-triangle" class="w-3 h-3"></i><span>Falhou</span></span>`;
+        } else {
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/15 text-slate-400 border border-slate-500/30 flex items-center space-x-1 w-max"><i data-lucide="x" class="w-3 h-3"></i><span>Cancelado</span></span>`;
+        }
+
+        const isCsv = j.job_type === 'csv_upload';
+        const typeIcon = isCsv
+          ? `<span class="inline-flex items-center space-x-1 text-teal-600 dark:text-teal-400 font-semibold"><i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i><span>CSV</span></span>`
+          : `<span class="inline-flex items-center space-x-1 text-cyan-600 dark:text-cyan-400 font-semibold"><i data-lucide="cloud" class="w-3.5 h-3.5"></i><span>API</span></span>`;
+
+        const createdDate = j.queued_at ? new Date(j.queued_at).toLocaleString('pt-BR') : '-';
+        const durationText = j.duration_seconds > 0 ? `${j.duration_seconds}s` : (j.status === 'running' ? 'Em andamento' : '-');
+
+        let actions = '';
+        if (j.status === 'queued') {
+          actions += `<button onclick="App.cancelJob(${j.id})" title="Cancelar tarefa da fila" class="px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-[10px] font-bold transition cursor-pointer">Cancelar</button>`;
+        } else if (j.status === 'failed' || j.status === 'cancelled') {
+          actions += `<button onclick="App.retryJob(${j.id})" title="Tentar novamente" class="px-2 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-[#0F766E] dark:text-teal-400 text-[10px] font-bold transition cursor-pointer">Repetir</button>`;
+        }
+        if (j.scan_id) {
+          actions += ` <button onclick="App.viewScanFromJob(${j.scan_id})" title="Ver Scan gerado" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-semibold transition cursor-pointer">Scan #${j.scan_id}</button>`;
+        }
+
+        return `
+          <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+            <td class="py-2.5 px-3">
+              <div class="font-mono font-bold text-slate-900 dark:text-white">#${j.id}</div>
+              <div class="mt-0.5">${typeIcon}</div>
+            </td>
+            <td class="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200">
+              ${j.asset_group_name || 'Global'}
+            </td>
+            <td class="py-2.5 px-3">
+              <div class="font-semibold text-slate-900 dark:text-white truncate max-w-[180px]" title="${j.scan_name || j.filename || ''}">
+                ${j.scan_name || j.filename || 'Sem título'}
+              </div>
+              <div class="text-[10px] text-slate-400 truncate max-w-[180px]">
+                ${j.filename || (isCsv ? 'Nessus CSV' : 'Sincronização API')}
+              </div>
+            </td>
+            <td class="py-2.5 px-3">
+              ${statusBadge}
+              ${j.status === 'running' ? `
+                <div class="w-24 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden mt-1 border border-slate-200 dark:border-slate-700">
+                  <div class="bg-sky-500 h-1.5 rounded-full" style="width: ${j.progress_percent || 0}%"></div>
+                </div>
+              ` : ''}
+            </td>
+            <td class="py-2.5 px-3">
+              <div class="text-[11px] text-slate-600 dark:text-slate-300 max-w-[220px] truncate" title="${j.progress_message || j.error_message || ''}">
+                ${j.progress_message || (j.error_message ? `<span class="text-rose-500 font-semibold">${j.error_message}</span>` : '-')}
+              </div>
+              ${j.hosts_count > 0 || j.findings_count > 0 ? `
+                <div class="text-[10px] text-slate-400 mt-0.5">
+                  ${j.hosts_count} hosts, ${j.findings_count} vulnerabilidades
+                </div>
+              ` : ''}
+            </td>
+            <td class="py-2.5 px-3">
+              <div class="font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-300">${durationText}</div>
+              <div class="text-[10px] text-slate-400">${createdDate}</div>
+            </td>
+            <td class="py-2.5 px-3 text-right whitespace-nowrap">
+              ${actions || '-'}
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      tbody.innerHTML = rowsHtml;
+      this.refreshIcons();
+    } catch (err) {
+      console.error('Erro ao carregar fila de jobs:', err);
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" class="py-4 text-center text-rose-500">
+            Erro ao listar tarefas da fila: ${err.message}
+          </td>
+        </tr>
+      `;
+    }
+  },
+
+  async cancelJob(jobId) {
+    if (!confirm(`Deseja realmente cancelar a tarefa #${jobId} que está aguardando na fila?`)) {
+      return;
+    }
+    try {
+      await API.cancelJob(jobId);
+      this.loadJobsTable();
+      this.checkActiveJobs();
+    } catch (err) {
+      alert(`Erro ao cancelar tarefa: ${err.message}`);
+    }
+  },
+
+  async retryJob(jobId) {
+    try {
+      await API.retryJob(jobId);
+      this.loadJobsTable();
+      this.checkActiveJobs();
+    } catch (err) {
+      alert(`Erro ao reenfileirar tarefa: ${err.message}`);
+    }
+  },
+
+  viewScanFromJob(scanId) {
+    this.closeJobsModal();
+    this.navigate('scans');
+  },
+
+  async checkActiveJobs() {
+    try {
+      const active = await API.getActiveJobs();
+      const count = active ? active.length : 0;
+
+      const headerIndicator = document.getElementById('header-jobs-indicator');
+      const headerText = document.getElementById('header-jobs-text');
+      const scansBadge = document.getElementById('badge-active-jobs-count');
+      const sidebarBadge = document.getElementById('sidebar-active-jobs-badge');
+
+      if (count > 0) {
+        if (headerIndicator) headerIndicator.classList.remove('hidden');
+        if (headerText) headerText.textContent = `${count} em processamento`;
+        if (scansBadge) {
+          scansBadge.textContent = count;
+          scansBadge.classList.remove('hidden');
+        }
+        if (sidebarBadge) {
+          sidebarBadge.textContent = count;
+          sidebarBadge.classList.remove('hidden');
+        }
+      } else {
+        if (headerIndicator) headerIndicator.classList.add('hidden');
+        if (scansBadge) scansBadge.classList.add('hidden');
+        if (sidebarBadge) sidebarBadge.classList.add('hidden');
+      }
+    } catch (e) {
+      // Falha silenciosa de polling
     }
   }
 };

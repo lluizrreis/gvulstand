@@ -1,7 +1,8 @@
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.config import settings
@@ -44,7 +45,7 @@ def list_scans(
         result.append(out)
     return result
 
-@router.post("/upload", response_model=schemas.ScanOut, status_code=status.HTTP_201_CREATED)
+@router.post("/upload", response_model=Union[schemas.ScanOut, schemas.ImportJobEnqueueResponse], status_code=status.HTTP_201_CREATED)
 async def upload_nessus_scan(
     file: UploadFile = File(...),
     asset_group_id: int = Form(...),
@@ -52,11 +53,13 @@ async def upload_nessus_scan(
     scan_type: Optional[str] = Form("baseline"), # 'baseline' or 'retest'
     scan_date: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
+    async_mode: Optional[bool] = Form(False),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_analyst_or_admin)
 ):
     """
-    Importa um relatório CSV do Nessus/Tenable associado a um Grupo de Ativos (Requer Analista ou Administrador).
+    Importa um relatório CSV do Nessus/Tenable associado a um Grupo de Ativos.
+    Suporta processamento assíncrono via Fila de Trabalhos (async_mode=True) ou síncrono legado.
     """
     check_user_group_access(db, current_user, asset_group_id, action="import")
 
@@ -71,35 +74,18 @@ async def upload_nessus_scan(
     try:
         content_bytes = await file.read()
         file_size = len(content_bytes)
-        try:
-            content_str = content_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            try:
-                content_str = content_bytes.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                try:
-                    content_str = content_bytes.decode("latin-1")
-                except UnicodeDecodeError:
-                    content_str = content_bytes.decode("cp1252", errors="replace")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {str(e)}")
-
-    # Parse Nessus CSV
-    try:
-        parsed_data = parse_nessus_csv(content_str)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erro no processamento do arquivo Nessus: {str(e)}")
-
-    hosts_data = parsed_data["hosts"]
-    findings_data = parsed_data["findings"]
-    stats = parsed_data["stats"]
 
     # Save uploaded file to disk
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_filename = f"{timestamp}_{file.filename}"
     file_path = os.path.join(settings.UPLOAD_FOLDER, safe_filename)
-    with open(file_path, "wb") as f:
-        f.write(content_bytes)
+    try:
+        with open(file_path, "wb") as f:
+            f.write(content_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo no disco: {str(e)}")
 
     # Parse scan_date if provided
     parsed_scan_date = datetime.now(timezone.utc)
@@ -120,6 +106,57 @@ async def upload_nessus_scan(
                 break
             except ValueError:
                 pass
+
+    # Se async_mode for True (padrão pelo frontend), enfileirar na Job Queue e retornar 202 imediatamente
+    if async_mode:
+        from app.services.job_queue import enqueue_csv_job
+        job = enqueue_csv_job(
+            db=db,
+            asset_group_id=asset_group_id,
+            filename=file.filename,
+            file_path=file_path,
+            file_size_bytes=file_size,
+            current_user=current_user,
+            scan_name=scan_name,
+            scan_type=scan_type if scan_type in ["baseline", "retest"] else "baseline",
+            scan_date=parsed_scan_date,
+            notes=notes
+        )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": job.id,
+                "status": "queued",
+                "message": "Scan adicionado à fila de processamento com sucesso.",
+                "job_type": "csv_upload",
+                "asset_group_id": asset_group_id
+            }
+        )
+
+    # Modo Síncrono (compatibilidade com testes e scripts externos):
+    try:
+        try:
+            content_str = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                content_str = content_bytes.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                try:
+                    content_str = content_bytes.decode("latin-1")
+                except UnicodeDecodeError:
+                    content_str = content_bytes.decode("cp1252", errors="replace")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erro ao decodificar arquivo: {str(e)}")
+
+    # Parse Nessus CSV
+    try:
+        parsed_data = parse_nessus_csv(content_str)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erro no processamento do arquivo Nessus: {str(e)}")
+
+    hosts_data = parsed_data["hosts"]
+    findings_data = parsed_data["findings"]
+    stats = parsed_data["stats"]
 
     # Create Scan Record
     scan = models.Scan(

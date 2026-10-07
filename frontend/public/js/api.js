@@ -485,6 +485,95 @@ const API = {
     return this.request(`/action-plans/tasks/${taskId}`, {
       method: 'DELETE'
     });
+  },
+
+  // Scanner Integrations (Tenable IO/SC/Nessus, OpenVAS and Microsoft Defender)
+  async getScannerIntegrations(assetGroupId = '') {
+    const qs = assetGroupId ? `?asset_group_id=${assetGroupId}` : '';
+    return this.request(`/integrations${qs}`);
+  },
+
+  async getSavedScannerCredentials(scannerType = '') {
+    const qs = scannerType ? `?scanner_type=${encodeURIComponent(scannerType)}` : '';
+    return this.request(`/integrations/saved-credentials${qs}`);
+  },
+
+  async getScannerIntegration(id) {
+    return this.request(`/integrations/${id}`);
+  },
+
+  async createScannerIntegration(data) {
+    return this.request('/integrations', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async updateScannerIntegration(id, data) {
+    return this.request(`/integrations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async deleteScannerIntegration(id) {
+    return this.request(`/integrations/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async testScannerIntegrationTransient(data) {
+    return this.request('/integrations/test-connection', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async testScannerIntegrationSaved(id) {
+    return this.request(`/integrations/${id}/test-connection`, {
+      method: 'POST'
+    });
+  },
+
+  async syncScannerIntegrationNow(id, background = true) {
+    const qs = background ? '?background=true' : '';
+    return this.request(`/integrations/${id}/sync-now${qs}`, {
+      method: 'POST'
+    });
+  },
+
+  // Job Queue & Import History Endpoints (Opção A)
+  async listJobs(params = {}) {
+    const query = new URLSearchParams();
+    if (params.asset_group_id) query.append('asset_group_id', params.asset_group_id);
+    if (params.status) query.append('status', params.status);
+    if (params.job_type) query.append('job_type', params.job_type);
+    if (params.limit) query.append('limit', params.limit);
+    if (params.offset) query.append('offset', params.offset);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request(`/jobs${qs}`);
+  },
+
+  async getActiveJobs() {
+    return this.request('/jobs/active');
+  },
+
+  async getJob(jobId) {
+    return this.request(`/jobs/${jobId}`);
+  },
+
+  async cancelJob(jobId) {
+    return this.request(`/jobs/${jobId}/cancel`, {
+      method: 'POST'
+    });
+  },
+
+  async retryJob(jobId) {
+    return this.request(`/jobs/${jobId}/retry`, {
+      method: 'POST'
+    });
   }
 };
+
+
 

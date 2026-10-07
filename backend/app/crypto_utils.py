@@ -62,8 +62,8 @@ def decrypt_secret(ciphertext: str) -> str:
     except InvalidToken as exc:
         logger.error("Token de descriptografia inválido (possível mudança de SECRET_KEY ou dado corrompido).")
         raise ValueError(
-            "Não foi possível descriptografar a senha do LDAP. "
-            "Se a SECRET_KEY foi alterada, reconfigure a senha de leitura LDAP."
+            "Não foi possível descriptografar o segredo/credencial. "
+            "Se a SECRET_KEY foi alterada, reconfigure a credencial."
         ) from exc
     except Exception as exc:
         logger.error("Erro inesperado ao descriptografar segredo: %s", exc)
@@ -73,8 +73,44 @@ def decrypt_secret(ciphertext: str) -> str:
 def is_encrypted(value: str) -> bool:
     """
     Heurística leve: tokens Fernet começam com 'gAAAAA' (base64url de \x80).
-    Útil para detectar senhas legadas em texto puro que ainda não foram migradas.
+    Útil para detectar credenciais legadas em texto puro que ainda não foram migradas.
     """
     if not value:
         return False
     return value.startswith("gAAAAA")
+
+
+def safe_encrypt_secret(value: str | None) -> str | None:
+    """
+    Criptografa o valor se não for vazio e se já não for um token Fernet criptografado.
+    Preserva None e strings vazias.
+    """
+    if value is None:
+        return None
+    val_str = str(value).strip()
+    if not val_str:
+        return ""
+    if is_encrypted(val_str):
+        return val_str
+    return encrypt_secret(val_str)
+
+
+def safe_decrypt_secret(value: str | None) -> str | None:
+    """
+    Descriptografa com segurança um segredo. Se for um token Fernet (começa com 'gAAAAA'),
+    descriptografa e retorna o texto puro. Se for texto puro legado ou string comum,
+    retorna o próprio texto sem disparar exceção.
+    """
+    if value is None:
+        return None
+    val_str = str(value)
+    if not val_str:
+        return ""
+    if is_encrypted(val_str):
+        try:
+            return decrypt_secret(val_str)
+        except Exception as exc:
+            logger.warning("Falha ao descriptografar segredo cifrado, mantendo original: %s", exc)
+            return val_str
+    return val_str
+

@@ -15,3 +15,7 @@ data/
 *.sql
 *.sqlite3
 *.db
+
+# Binário Standalone do Tailwind CLI
+tailwindcss
+tailwindcss.exe

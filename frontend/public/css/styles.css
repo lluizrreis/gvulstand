@@ -519,6 +519,21 @@ html:not(.dark) .gvul-table tbody tr:hover {
   background-color: #F8FAFC !important;
 }
 
+/* Compact Table Variant */
+.gvul-table.gvul-table-compact th,
+html.dark .gvul-table.gvul-table-compact th,
+html:not(.dark) .gvul-table.gvul-table-compact th {
+  padding: 0.55rem 0.75rem !important;
+  font-size: 0.68rem !important;
+}
+
+.gvul-table.gvul-table-compact td,
+html.dark .gvul-table.gvul-table-compact td,
+html:not(.dark) .gvul-table.gvul-table-compact td {
+  padding: 0.45rem 0.75rem !important;
+  font-size: 0.75rem !important;
+}
+
 /* Light Mode High-Contrast Table Inner Elements */
 html:not(.dark) .gvul-table td .text-slate-200,
 html:not(.dark) .gvul-table td .text-slate-100 {

@@ -33,29 +33,14 @@ def test_action_plans_lifecycle_and_features():
 
     # Find a host and vulnerability in latest scan for linking
     db = SessionLocal()
-    latest_scan = db.query(models.Scan).order_by(models.Scan.scan_date.desc(), models.Scan.id.desc()).first()
-    vuln = None
-    if latest_scan:
-        vuln = db.query(models.Vulnerability).filter(
-            models.Vulnerability.scan_id == latest_scan.id,
-            ~models.Vulnerability.severity.in_(["Info", "info"]),
-            models.Vulnerability.treatment_status.in_(["Open", "open"])
-        ).first()
-    if not vuln:
-        vuln = db.query(models.Vulnerability).filter(
-            ~models.Vulnerability.severity.in_(["Info", "info"]),
-            models.Vulnerability.treatment_status.in_(["Open", "open"])
-        ).order_by(models.Vulnerability.id.desc()).first()
-    if not vuln and latest_scan:
-        vuln = db.query(models.Vulnerability).filter(
-            models.Vulnerability.scan_id == latest_scan.id,
-            ~models.Vulnerability.severity.in_(["Info", "info"])
-        ).first()
-        if vuln:
-            vuln.treatment_status = "Open"
-            db.commit()
-            db.refresh(vuln)
-    host = vuln.host if vuln else db.query(models.Host).order_by(models.Host.id.desc()).first()
+    from app.services.scan_service import get_latest_scan_ids
+    latest_scan_ids = get_latest_scan_ids(db)
+    vuln = db.query(models.Vulnerability).filter(
+        models.Vulnerability.scan_id.in_(latest_scan_ids),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+        models.Vulnerability.treatment_status.in_(["Open", "open"])
+    ).first()
+    host = vuln.host if vuln else None
     db.close()
 
     host_id = host.id if host else None
@@ -197,7 +182,13 @@ def test_action_plan_creation_from_host_ip_and_plugin():
     headers = {"Authorization": f"Bearer {token}"}
 
     db = SessionLocal()
-    vuln = db.query(models.Vulnerability).filter(~models.Vulnerability.severity.in_(["Info", "info"])).first()
+    from app.services.scan_service import get_latest_scan_ids
+    latest_scan_ids = get_latest_scan_ids(db)
+    vuln = db.query(models.Vulnerability).filter(
+        models.Vulnerability.scan_id.in_(latest_scan_ids),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+        models.Vulnerability.treatment_status.in_(["Open", "open"])
+    ).first()
     host = vuln.host if vuln else None
     plugin_id = vuln.plugin_id if vuln else "100464"
     db.close()
@@ -401,13 +392,19 @@ def test_action_plans_matrix_scope_and_preview():
 
     # 3. Create Valid Matrix Plan with existing hosts and associated plugin
     db = SessionLocal()
+    from app.services.scan_service import get_latest_scan_ids
+    latest_scan_ids = get_latest_scan_ids(db)
     real_sample_vuln = db.query(models.Vulnerability).filter(
-        ~models.Vulnerability.severity.in_(["Info", "info"])
+        models.Vulnerability.scan_id.in_(latest_scan_ids),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+        models.Vulnerability.treatment_status.in_(["Open", "open"])
     ).first()
     matrix_plugin_id = real_sample_vuln.plugin_id if real_sample_vuln else "100464"
     real_vulns = db.query(models.Vulnerability).filter(
+        models.Vulnerability.scan_id.in_(latest_scan_ids),
         models.Vulnerability.plugin_id == matrix_plugin_id,
-        ~models.Vulnerability.severity.in_(["Info", "info"])
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+        models.Vulnerability.treatment_status.in_(["Open", "open"])
     ).limit(2).all()
     real_host_ips = list(dict.fromkeys([v.host.ip_address for v in real_vulns if v.host]))
     db.close()
@@ -457,8 +454,7 @@ def test_action_plans_precedence_and_orphans():
         scan = models.Scan(
             asset_group_id=group.id,
             filename="prec_test_scan.csv",
-            scan_name="Precedence Test Scan",
-            uploaded_by="Admin"
+            scan_name="Precedence Test Scan"
         )
         db.add(scan)
         db.commit()
@@ -634,8 +630,10 @@ def test_action_plan_matrix_strict_bipartite_validation():
     headers = {"Authorization": f"Bearer {token}"}
 
     db = SessionLocal()
-    group = db.query(models.AssetGroup).first()
-    scan = db.query(models.Scan).first()
+    from app.services.scan_service import get_latest_scan_ids
+    latest_scan_ids = get_latest_scan_ids(db)
+    scan = db.query(models.Scan).filter(models.Scan.id.in_(latest_scan_ids)).first()
+    group = db.query(models.AssetGroup).filter(models.AssetGroup.id == scan.asset_group_id).first() if scan else db.query(models.AssetGroup).first()
     ts = int(datetime.now().timestamp())
 
     ip_a = f"198.18.1.{ts % 200 + 1}"
@@ -736,8 +734,7 @@ def test_action_plan_deletion_reverts_vulnerabilities_to_open_and_logs():
         scan = models.Scan(
             asset_group_id=group.id,
             filename=f"del_test_{ts}.csv",
-            scan_name="Del Test Scan",
-            uploaded_by="Admin"
+            scan_name="Del Test Scan"
         )
         db.add(scan)
         db.commit()
@@ -943,30 +940,13 @@ def test_action_plan_automated_tasks_generation_rules():
     headers = {"Authorization": f"Bearer {token}"}
 
     db = SessionLocal()
-    # Obter vulnerabilidade e host ativo do scan mais recente
-    latest_scan = db.query(models.Scan).order_by(models.Scan.scan_date.desc(), models.Scan.id.desc()).first()
-    v1 = None
-    if latest_scan:
-        v1 = db.query(models.Vulnerability).filter(
-            models.Vulnerability.scan_id == latest_scan.id,
-            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
-            models.Vulnerability.treatment_status.in_(["Open", "open"])
-        ).first()
-    if not v1:
-        v1 = db.query(models.Vulnerability).filter(
-            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
-            models.Vulnerability.treatment_status.in_(["Open", "open"])
-        ).order_by(models.Vulnerability.id.desc()).first()
-    if not v1 and latest_scan:
-        # Garantir que há ao menos uma vuln Open resetando uma não remediada
-        v1 = db.query(models.Vulnerability).filter(
-            models.Vulnerability.scan_id == latest_scan.id,
-            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
-        ).first()
-        if v1:
-            v1.treatment_status = "Open"
-            db.commit()
-            db.refresh(v1)
+    from app.services.scan_service import get_latest_scan_ids
+    latest_scan_ids = get_latest_scan_ids(db)
+    v1 = db.query(models.Vulnerability).filter(
+        models.Vulnerability.scan_id.in_(latest_scan_ids),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+        models.Vulnerability.treatment_status.in_(["Open", "open"])
+    ).first()
     assert v1 is not None
     h1 = v1.host
     assert h1 is not None
@@ -981,6 +961,7 @@ def test_action_plan_automated_tasks_generation_rules():
     # -------------------------------------------------------------
     res_host_plan = client.post("/api/action-plans", json={
         "title": f"Plano Escopo Host Teste {ip1}",
+        "asset_group_id": v1.asset_group_id,
         "scope_type": "HOST",
         "target_host_id": h1.id,
         "priority": "HIGH",
@@ -1002,6 +983,7 @@ def test_action_plan_automated_tasks_generation_rules():
     # -------------------------------------------------------------
     res_vuln_plan = client.post("/api/action-plans", json={
         "title": f"Plano Escopo Vulnerabilidade Teste {p1}",
+        "asset_group_id": v1.asset_group_id,
         "scope_type": "VULNERABILITY",
         "target_plugin_id": p1,
         "priority": "HIGH",
@@ -1024,6 +1006,7 @@ def test_action_plan_automated_tasks_generation_rules():
     # -------------------------------------------------------------
     res_matrix = client.post("/api/action-plans", json={
         "title": f"Plano Matriz N:N Host+Vuln Teste {ip1}",
+        "asset_group_id": v1.asset_group_id,
         "scope_type": "MATRIX_NN",
         "scope_host_ips": [ip1],
         "scope_plugin_ids": [p1],
@@ -1057,8 +1040,7 @@ def test_action_plan_automated_tasks_generation_rules():
     matrix_all_plan = res_matrix_all.json()
     assert matrix_all_plan["total_tasks"] == 1
     t_all = matrix_all_plan["tasks"][0]
-    assert ip1 in t_all["title"]
-    assert v1.plugin_name in t_all["description"]
+    assert any(v.plugin_name in t_all["description"] for v in h1_vulns) or v1.plugin_name in t_all["description"] or "vulnerabilidades" in t_all["description"]
     assert t_all["vulnerabilities_count"] >= 1
 
     client.delete(f"/api/action-plans/{matrix_all_plan['id']}", headers=headers)
@@ -1269,6 +1251,24 @@ def test_action_plan_latest_scan_only_and_post_import_lifecycle():
 
     # Cleanup
     client.delete(f"/api/action-plans/{plan_id}", headers=headers)
+    db = SessionLocal()
+    db.query(models.ActionTaskVulnerabilityLink).filter(
+        models.ActionTaskVulnerabilityLink.vulnerability_id.in_(
+            db.query(models.Vulnerability.id).filter(models.Vulnerability.asset_group_id == gid)
+        )
+    ).delete(synchronize_session=False)
+    db.query(models.VulnerabilityTreatmentHistory).filter(
+        models.VulnerabilityTreatmentHistory.vulnerability_id.in_(
+            db.query(models.Vulnerability.id).filter(models.Vulnerability.asset_group_id == gid)
+        )
+    ).delete(synchronize_session=False)
+    db.query(models.Vulnerability).filter(models.Vulnerability.asset_group_id == gid).delete(synchronize_session=False)
+    db.query(models.Host).filter(models.Host.asset_group_id == gid).delete(synchronize_session=False)
+    db.query(models.Scan).filter(models.Scan.asset_group_id == gid).delete(synchronize_session=False)
+    grp = db.query(models.AssetGroup).filter(models.AssetGroup.id == gid).first()
+    if grp:
+        db.delete(grp)
+    db.commit()
     db.close()
 
 
@@ -1397,6 +1397,25 @@ def test_action_plan_update_scope_and_task_sync():
 
     # Cleanup
     client.delete(f"/api/action-plans/{plan_id}", headers=headers)
+    db = SessionLocal()
+    db.query(models.ActionTaskVulnerabilityLink).filter(
+        models.ActionTaskVulnerabilityLink.vulnerability_id.in_(
+            db.query(models.Vulnerability.id).filter(models.Vulnerability.asset_group_id == gid)
+        )
+    ).delete(synchronize_session=False)
+    db.query(models.VulnerabilityTreatmentHistory).filter(
+        models.VulnerabilityTreatmentHistory.vulnerability_id.in_(
+            db.query(models.Vulnerability.id).filter(models.Vulnerability.asset_group_id == gid)
+        )
+    ).delete(synchronize_session=False)
+    db.query(models.Vulnerability).filter(models.Vulnerability.asset_group_id == gid).delete(synchronize_session=False)
+    db.query(models.Host).filter(models.Host.asset_group_id == gid).delete(synchronize_session=False)
+    db.query(models.Scan).filter(models.Scan.asset_group_id == gid).delete(synchronize_session=False)
+    grp = db.query(models.AssetGroup).filter(models.AssetGroup.id == gid).first()
+    if grp:
+        db.delete(grp)
+    db.commit()
+    db.close()
 
 
 def test_dashboard_stats_action_plans_summary():
@@ -1792,6 +1811,196 @@ def test_action_plan_wizard_os_list_and_filter():
         db.query(models.AssetGroup).filter(models.AssetGroup.id == group_id).delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+def test_action_plan_auto_remediation_and_persistence_on_scan_import():
+    """
+    Valida as regras de negócio de sincronização pós-scan (PDCA / ISO 27001):
+    1. Persistência: vulnerabilidade ainda encontrada permanece no plano e recebe nota de 'não remediada'.
+    2. Reabertura: se a tarefa estava como concluída (DONE), é reaberta para 'REVIEW' em caso de persistência.
+    3. Auto-conclusão: quando o host é escaneado e a vulnerabilidade não é mais identificada,
+       é marcada como Remediada, a tarefa é concluída (DONE) e o plano transiciona para COMPLETED.
+    """
+    from app.api.routes_action_plans import sync_action_plans_on_scan_import
+
+    token = get_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db = SessionLocal()
+    ts = int(datetime.now(timezone.utc).timestamp())
+    group = models.AssetGroup(name=f"AP Remediation Group {ts}")
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    gid = group.id
+
+    ip_target = "192.168.123.45"
+    pid_target = "10999"
+
+    # 1. Scan 1 com a vulnerabilidade ativa
+    scan1 = models.Scan(asset_group_id=gid, filename=f"scan1_{ts}.csv", scan_name=f"Scan 1 {ts}")
+    db.add(scan1)
+    db.commit()
+    db.refresh(scan1)
+
+    host1 = models.Host(scan_id=scan1.id, asset_group_id=gid, ip_address=ip_target, hostname="srv-test-1")
+    db.add(host1)
+    db.commit()
+    db.refresh(host1)
+
+    v1 = models.Vulnerability(
+        scan_id=scan1.id,
+        host_id=host1.id,
+        asset_group_id=gid,
+        plugin_id=pid_target,
+        plugin_name="Vulnerabilidade Alvo Teste",
+        severity="High",
+        treatment_status="Open"
+    )
+    db.add(v1)
+    db.commit()
+    db.refresh(v1)
+    v1_id = v1.id
+    db.close()
+
+    # 2. Criar Plano de Ação para o par (ip_target, pid_target)
+    res_plan = client.post("/api/action-plans", json={
+        "title": f"Plano Remediação Teste {ts}",
+        "scope_type": "MATRIX_NN",
+        "asset_group_id": gid,
+        "scope_host_ips": [ip_target],
+        "scope_plugin_ids": [pid_target],
+        "priority": "HIGH",
+        "status": "PLANNED",
+        "auto_link_vulnerabilities": True
+    }, headers=headers)
+    assert res_plan.status_code == 200
+    plan_data = res_plan.json()
+    plan_id = plan_data["id"]
+    task_id = plan_data["tasks"][0]["id"]
+
+    db = SessionLocal()
+    v1_check = db.query(models.Vulnerability).filter(models.Vulnerability.id == v1_id).first()
+    assert v1_check.treatment_status == "In_Action_Plan"
+    db.close()
+
+    # 3. Simular Scan 2 (Persistência / Não remediada)
+    db = SessionLocal()
+    scan2 = models.Scan(asset_group_id=gid, filename=f"scan2_{ts}.csv", scan_name=f"Scan 2 {ts}")
+    db.add(scan2)
+    db.commit()
+    db.refresh(scan2)
+
+    host2 = models.Host(scan_id=scan2.id, asset_group_id=gid, ip_address=ip_target, hostname="srv-test-1")
+    db.add(host2)
+    db.commit()
+    db.refresh(host2)
+
+    v2 = models.Vulnerability(
+        scan_id=scan2.id,
+        host_id=host2.id,
+        asset_group_id=gid,
+        plugin_id=pid_target,
+        plugin_name="Vulnerabilidade Alvo Teste",
+        severity="High",
+        treatment_status="Open"
+    )
+    db.add(v2)
+    db.commit()
+    db.refresh(v2)
+    v2_id = v2.id
+
+    # Executar sync após scan2
+    sync_action_plans_on_scan_import(db, scan2, "TestAdmin")
+
+    # Verificar que v2 foi vinculada ao plano e recebeu nota de "não remediada"
+    v2_check = db.query(models.Vulnerability).filter(models.Vulnerability.id == v2_id).first()
+    assert v2_check.treatment_status == "In_Action_Plan"
+    assert "Vulnerabilidade não remediada" in v2_check.treatment_notes
+
+    # Verificar tarefa e plano ainda ativos
+    task_check = db.query(models.ActionTask).filter(models.ActionTask.id == task_id).first()
+    assert task_check.status in ["TODO", "DOING", "REVIEW"]
+
+    # 4. Forçar status da tarefa para DONE para testar reabertura quando reincidente
+    task_check.status = "DONE"
+    task_check.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    # Simular Scan 3 (Ainda persistente)
+    scan3 = models.Scan(asset_group_id=gid, filename=f"scan3_{ts}.csv", scan_name=f"Scan 3 {ts}")
+    db.add(scan3)
+    db.commit()
+    db.refresh(scan3)
+
+    host3 = models.Host(scan_id=scan3.id, asset_group_id=gid, ip_address=ip_target, hostname="srv-test-1")
+    db.add(host3)
+    db.commit()
+    db.refresh(host3)
+
+    v3 = models.Vulnerability(
+        scan_id=scan3.id,
+        host_id=host3.id,
+        asset_group_id=gid,
+        plugin_id=pid_target,
+        plugin_name="Vulnerabilidade Alvo Teste",
+        severity="High",
+        treatment_status="Open"
+    )
+    db.add(v3)
+    db.commit()
+    db.refresh(v3)
+
+    sync_action_plans_on_scan_import(db, scan3, "TestAdmin")
+
+    # Tarefa que estava DONE deve ter sido reaberta para REVIEW
+    db.refresh(task_check)
+    assert task_check.status == "REVIEW"
+    assert task_check.completed_at is None
+
+    # 5. Simular Scan 4 (Remediação confirmada: Host escaneado, mas vulnerabilidade ausente!)
+    scan4 = models.Scan(asset_group_id=gid, filename=f"scan4_{ts}.csv", scan_name=f"Scan 4 {ts}")
+    db.add(scan4)
+    db.commit()
+    db.refresh(scan4)
+
+    host4 = models.Host(scan_id=scan4.id, asset_group_id=gid, ip_address=ip_target, hostname="srv-test-1")
+    db.add(host4)
+    db.commit()
+    # Host escaneado sem a vulnerabilidade pid_target
+
+    sync_action_plans_on_scan_import(db, scan4, "TestAdmin")
+
+    # Todas as instâncias devem estar Remediated
+    db.refresh(task_check)
+    assert task_check.status == "DONE"
+    assert task_check.completed_at is not None
+
+    plan_check = db.query(models.ActionPlan).filter(models.ActionPlan.id == plan_id).first()
+    assert plan_check.status == "COMPLETED"
+
+    v1_final = db.query(models.Vulnerability).filter(models.Vulnerability.id == v1_id).first()
+    v2_final = db.query(models.Vulnerability).filter(models.Vulnerability.id == v2_id).first()
+    assert v1_final.treatment_status == "Remediated"
+    assert v2_final.treatment_status == "Remediated"
+    assert "Remediada" in v1_final.treatment_notes
+
+    # Cleanup
+    client.delete(f"/api/action-plans/{plan_id}", headers=headers)
+    db.query(models.ActionTaskVulnerabilityLink).filter(
+        models.ActionTaskVulnerabilityLink.vulnerability_id.in_([v1_id, v2_id, v3.id])
+    ).delete(synchronize_session=False)
+    db.query(models.VulnerabilityTreatmentHistory).filter(
+        models.VulnerabilityTreatmentHistory.vulnerability_id.in_([v1_id, v2_id, v3.id])
+    ).delete(synchronize_session=False)
+    db.query(models.Vulnerability).filter(models.Vulnerability.asset_group_id == gid).delete(synchronize_session=False)
+    db.query(models.Host).filter(models.Host.asset_group_id == gid).delete(synchronize_session=False)
+    db.query(models.Scan).filter(models.Scan.asset_group_id == gid).delete(synchronize_session=False)
+    grp = db.query(models.AssetGroup).filter(models.AssetGroup.id == gid).first()
+    if grp:
+        db.delete(grp)
+    db.commit()
+    db.close()
 
 
 

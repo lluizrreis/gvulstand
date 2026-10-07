@@ -1044,6 +1044,174 @@ class ActionPlanWizardVulnOut(BaseModel):
     affected_hosts_count: int = 0
 
 
+# --- Scanner Integration Schemas (Tenable & Microsoft Defender) ---
+class ScannerIntegrationBase(BaseModel):
+    asset_group_id: int
+    name: str
+    scanner_type: str = "tenable_io"  # 'tenable_io', 'tenable_sc', 'tenable_nessus_pro', 'ms_defender'
+    is_enabled: bool = True
+    api_endpoint: Optional[str] = None
+    verify_ssl: bool = True
+    auth_type: str = "api_keys"  # 'api_keys', 'oauth_client_credentials'
+    access_key: Optional[str] = None
+    secret_key: Optional[str] = None
+    tenant_id: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    target_scope_filter: Optional[str] = None
+    schedule_type: str = "manual"  # 'manual', 'interval', 'daily', 'weekly'
+    interval_hours: int = 24
+    schedule_time: Optional[str] = "02:00"
+    schedule_days: Optional[str] = "1,2,3,4,5"
+
+
+class ScannerIntegrationCreate(ScannerIntegrationBase):
+    use_credentials_from_id: Optional[int] = None
+
+
+class ScannerIntegrationUpdate(BaseModel):
+    name: Optional[str] = None
+    scanner_type: Optional[str] = None
+    is_enabled: Optional[bool] = None
+    api_endpoint: Optional[str] = None
+    verify_ssl: Optional[bool] = None
+    auth_type: Optional[str] = None
+    access_key: Optional[str] = None
+    secret_key: Optional[str] = None
+    tenant_id: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    target_scope_filter: Optional[str] = None
+    schedule_type: Optional[str] = None
+    interval_hours: Optional[int] = None
+    schedule_time: Optional[str] = None
+    schedule_days: Optional[str] = None
+    use_credentials_from_id: Optional[int] = None
+
+
+class ScannerIntegrationOut(BaseModel):
+    id: int
+    asset_group_id: int
+    asset_group_name: Optional[str] = None
+    name: str
+    scanner_type: str
+    scanner_type_label: str = ""
+    is_enabled: bool
+    api_endpoint: Optional[str] = None
+    verify_ssl: bool
+    auth_type: str
+    access_key_masked: Optional[str] = None
+    has_secret_key: bool = False
+    tenant_id: Optional[str] = None
+    client_id: Optional[str] = None
+    has_client_secret: bool = False
+    target_scope_filter: Optional[str] = None
+    schedule_type: str
+    schedule_type_label: str = ""
+    interval_hours: int
+    schedule_time: Optional[str] = None
+    schedule_days: Optional[str] = None
+    last_sync_status: str
+    last_sync_at: Optional[datetime] = None
+    last_sync_at_formatted: Optional[str] = None
+    last_sync_message: Optional[str] = None
+    last_synced_scan_id: Optional[int] = None
+    vulnerabilities_imported_count: int = 0
+    hosts_imported_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SavedCredentialOption(BaseModel):
+    id: int
+    name: str
+    scanner_type: str
+    scanner_type_label: str = ""
+    api_endpoint: Optional[str] = None
+    account_identifier: Optional[str] = None
+    tenant_id: Optional[str] = None
+    has_secret: bool = True
+    verify_ssl: bool = True
+    asset_group_name: Optional[str] = None
+
+
+class ScannerIntegrationTestRequest(BaseModel):
+    scanner_type: str
+    api_endpoint: Optional[str] = None
+    verify_ssl: bool = True
+    auth_type: str = "api_keys"
+    access_key: Optional[str] = None
+    secret_key: Optional[str] = None
+    tenant_id: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    use_credentials_from_id: Optional[int] = None
+
+
+class ScannerIntegrationTestResponse(BaseModel):
+    success: bool
+    status_code: int
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
+
+class ScannerSyncResponse(BaseModel):
+    success: bool
+    status: str
+    message: str
+    scan_id: Optional[int] = None
+    hosts_count: int = 0
+    vulnerabilities_count: int = 0
+    duration_seconds: float = 0.0
+
+
+# --- Import Job Queue Schemas ---
+class ImportJobOut(BaseModel):
+    id: int
+    job_type: str
+    job_type_label: str = ""
+    status: str
+    status_label: str = ""
+    progress_percent: int = 0
+    progress_message: Optional[str] = None
+    asset_group_id: int
+    asset_group_name: Optional[str] = None
+    created_by_username: str
+    integration_id: Optional[int] = None
+    scan_id: Optional[int] = None
+    filename: Optional[str] = None
+    file_size_bytes: int = 0
+    scan_name: Optional[str] = None
+    scan_type: str = "baseline"
+    hosts_count: int = 0
+    findings_count: int = 0
+    result_summary: Optional[str] = None
+    error_message: Optional[str] = None
+    duration_seconds: float = 0.0
+    queued_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ImportJobEnqueueResponse(BaseModel):
+    job_id: int
+    status: str
+    message: str
+    job_type: str = "csv_upload"
+    asset_group_id: int
+
+
+class ImportJobCancelResponse(BaseModel):
+    success: bool
+    message: str
+
+
+
+
 
 
 
