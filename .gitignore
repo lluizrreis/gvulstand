@@ -8,6 +8,8 @@ __pycache__/
 
 # Dados gerados pelo app e uploads do Docker
 data/
+scripts/
+
 # Caso queira ignorar especificamente apenas os uploads e preservar a pasta:
 # data/uploads/
 
@@ -15,6 +17,9 @@ data/
 *.sql
 *.sqlite3
 *.db
+*.crt
+*.key
+*.pem
 
 # Binário Standalone do Tailwind CLI
 tailwindcss
