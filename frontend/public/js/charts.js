@@ -51,10 +51,10 @@ const AppCharts = {
           datasets: [{
             data: total === 0 ? [0, 0, 0, 1] : counts,
             backgroundColor: total === 0 ? [colors.emptyBg] : [
-              '#DC2626', // Critical (Vermelho vivo/escuro CVSS)
-              '#EA580C', // High (Laranja/Coral CVSS)
-              '#D97706', // Medium (Amarelo/Âmbar CVSS)
-              '#0284C7'  // Low (Azul oceano limpo CVSS)
+              '#DC2626', // Critical (CVSS Red)
+              '#EA580C', // High (CVSS Orange)
+              '#D97706', // Medium (CVSS Amber)
+              '#0284C7'  // Low (CVSS Blue)
             ],
             borderColor: colors.borderColor,
             borderWidth: 3,
@@ -120,25 +120,25 @@ const AppCharts = {
               label: 'Crítica',
               data: criticals.length ? criticals : [0],
               backgroundColor: '#DC2626',
-              borderRadius: 4
+              borderRadius: 6
             },
             {
               label: 'Alta',
               data: highs.length ? highs : [0],
               backgroundColor: '#EA580C',
-              borderRadius: 4
+              borderRadius: 6
             },
             {
               label: 'Média',
               data: mediums.length ? mediums : [0],
               backgroundColor: '#D97706',
-              borderRadius: 4
+              borderRadius: 6
             },
             {
               label: 'Baixa',
               data: lows.length ? lows : [0],
               backgroundColor: '#0284C7',
-              borderRadius: 4
+              borderRadius: 6
             }
           ]
         },
@@ -299,11 +299,11 @@ const AppCharts = {
           datasets: [{
             data: values,
             backgroundColor: [
-              '#0284C7', // Azul oceano
-              '#0F766E', // Verde Petróleo
-              '#10B981', // Verde Esmeralda
-              '#7C3AED', // Púrpura Exploit
-              '#EA580C'  // Coral / Laranja
+              '#DC2626', // Explorado por Malware (Ameaça Crítica)
+              '#EA580C', // Remoto Baixa Compl. (Alta Exposição)
+              '#0F766E', // Local Baixa Compl. (Verde Petróleo Institucional)
+              '#7C3AED', // Framework Metasploit (Púrpura Exploit Ativo)
+              '#0284C7'  // Remoto Alta Compl. (Azul Oceano)
             ],
             borderRadius: 6
           }]
@@ -379,7 +379,7 @@ const AppCharts = {
             backgroundColor: [
               '#10B981', // Sucesso (Verde Esmeralda)
               '#0284C7', // Sucesso c/ Acesso Insuficiente (Azul Oceano)
-              '#D97706', // Intermitente (Âmbar)
+              '#D97706', // Intermitente (Âmbar Vibrante)
               '#EA580C', // Falha (Laranja Coral)
               total === 0 ? colors.emptyBg : '#DC2626' // Sem Credenciais (Vermelho CVSS)
             ],
@@ -429,13 +429,37 @@ const AppCharts = {
     if (!ctx || typeof Chart === 'undefined') return;
     if (this.trendChart) {
       try { this.trendChart.destroy(); } catch(e) {}
+      this.trendChart = null;
+    }
+
+    const emptyEl = document.getElementById('chart-trend-empty');
+    const legendEl = document.getElementById('chart-trend-legend');
+
+    trendData = trendData || {};
+    const labels = Array.isArray(trendData.labels) ? trendData.labels : [];
+    const discovered = Array.isArray(trendData.discovered) ? trendData.discovered : [];
+    const remediated = Array.isArray(trendData.remediated) ? trendData.remediated : [];
+    const hasSufficientData = Boolean(trendData.has_sufficient_data && labels.length >= 2);
+
+    if (!hasSufficientData) {
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      ctx.style.display = 'none';
+      if (legendEl) {
+        legendEl.textContent = 'Histórico temporal consolidado dos últimos meses (mínimo de 2 períodos de varredura requeridos).';
+      }
+      if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+      }
+      return;
+    }
+
+    if (emptyEl) emptyEl.classList.add('hidden');
+    ctx.style.display = 'block';
+    if (legendEl) {
+      legendEl.textContent = 'Linha vermelha representa volume descoberto; linha verde petróleo confirma resolução efetiva em retestes.';
     }
 
     const colors = this.getThemeColors();
-    trendData = trendData || {};
-    const labels = trendData.labels || ['Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set'];
-    const discovered = trendData.discovered || [420, 395, 360, 340, 310, 280, 247];
-    const remediated = trendData.remediated || [180, 240, 300, 330, 360, 400, 425];
 
     try {
       this.trendChart = new Chart(ctx, {
@@ -444,28 +468,28 @@ const AppCharts = {
           labels: labels,
           datasets: [
             {
-              label: 'Descobertas',
+              label: 'Descobertas (Risco Aberto)',
               data: discovered,
-              borderColor: '#0F766E',
-              backgroundColor: colors.isDark ? 'rgba(20, 184, 166, 0.12)' : 'rgba(15, 118, 110, 0.08)',
+              borderColor: '#DC2626',
+              backgroundColor: colors.isDark ? 'rgba(220, 38, 38, 0.15)' : 'rgba(220, 38, 38, 0.08)',
               borderWidth: 2.5,
               tension: 0.35,
               fill: true,
-              pointRadius: 3,
+              pointRadius: 4,
               pointHoverRadius: 6,
-              pointBackgroundColor: '#0F766E'
+              pointBackgroundColor: '#DC2626'
             },
             {
-              label: 'Remediadas',
+              label: 'Remediadas (Tratadas)',
               data: remediated,
-              borderColor: '#0284C7',
-              backgroundColor: colors.isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(2, 132, 199, 0.08)',
+              borderColor: '#0F766E',
+              backgroundColor: colors.isDark ? 'rgba(20, 184, 166, 0.18)' : 'rgba(15, 118, 110, 0.10)',
               borderWidth: 2.5,
               tension: 0.35,
               fill: true,
-              pointRadius: 3,
+              pointRadius: 4,
               pointHoverRadius: 6,
-              pointBackgroundColor: '#0284C7'
+              pointBackgroundColor: '#0F766E'
             }
           ]
         },
@@ -496,7 +520,14 @@ const AppCharts = {
               padding: 10,
               cornerRadius: 8,
               bodyFont: { family: colors.fontFamily },
-              titleFont: { family: colors.fontFamily, weight: 'bold' }
+              titleFont: { family: colors.fontFamily, weight: 'bold' },
+              callbacks: {
+                label: function(context) {
+                  const label = context.dataset.label || '';
+                  const value = context.parsed.y !== null ? context.parsed.y.toLocaleString() : 0;
+                  return ` ${label}: ${value}`;
+                }
+              }
             }
           },
           scales: {
@@ -505,8 +536,15 @@ const AppCharts = {
               ticks: { color: colors.textColor, font: { size: 11, family: colors.fontFamily } }
             },
             y: {
+              beginAtZero: true,
               grid: { color: colors.gridColor },
-              ticks: { color: colors.textColor, font: { size: 11, family: colors.fontFamily } }
+              ticks: { 
+                color: colors.textColor, 
+                font: { size: 11, family: colors.fontFamily },
+                callback: function(val) {
+                  return Number(val).toLocaleString();
+                }
+              }
             }
           }
         }
@@ -514,5 +552,5 @@ const AppCharts = {
     } catch (err) {
       console.error('Error creating trend chart:', err);
     }
-  }
+  },
 };

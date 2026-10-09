@@ -36,10 +36,25 @@ const App = {
     actionPlansAssignees: [],
     currentActionPlan: null,
     actionPlansPage: 1,
-    actionPlansPageSize: 10,
     planWizardHostOsFilter: '',
     savedScannerCredentials: [],
-    selectedCredentialSourceId: null
+    selectedCredentialSourceId: null,
+    top100RawData: [],
+    top100SortField: 'cvss_v3',
+    top100SortOrder: 'desc',
+    top20RawData: [],
+    top20SortField: 'risk_score',
+    top20SortOrder: 'desc',
+    scansList: [],
+    scansPage: 1,
+    scansPageSize: 10,
+    scansSortField: 'created_at',
+    scansSortOrder: 'desc',
+    diagItems: [],
+    diagPage: 1,
+    diagPageSize: 10,
+    diagSortField: 'host_ip',
+    diagSortOrder: 'asc'
   },
 
   async init() {
@@ -416,7 +431,7 @@ const App = {
       }
       if (roleEl) {
         roleEl.textContent = roleLabel;
-        roleEl.className = `text-[10px] ${roleClass}`;
+        roleEl.className = `text-xs ${roleClass}`;
       }
 
       this.applyRBACPermissions();
@@ -917,7 +932,7 @@ const App = {
       const allCvesTooltip = list.join(', ');
       return `<div class="inline-flex items-center space-x-1 font-mono text-xs text-sky-400">
         <span>${primary}</span>
-        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30 cursor-pointer" title="Total de ${count} CVEs agregadas neste plugin:\n${allCvesTooltip}">+${count - 1} CVEs</span>
+        <span class="px-1.5 py-0.5 rounded text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30 cursor-pointer" title="Total de ${count} CVEs agregadas neste plugin:\n${allCvesTooltip}">+${count - 1} CVEs</span>
       </div>`;
     }
     return `<span class="font-mono text-xs text-sky-400">${primary}</span>`;
@@ -987,16 +1002,79 @@ const App = {
 
       // Modern Top 4 Executive KPI Cards & Donut Center
       setVal('donut-center-total', (stats.total_findings || 0).toLocaleString());
-      setVal('kpi-total-open-vulns', (stats.total_findings || 0).toLocaleString());
-      setVal('kpi-open-vulns-breakdown', `${stats.critical_count || 0} Críticas • ${stats.high_count || 0} Altas • ${stats.medium_count || 0} Médias • ${stats.low_count || 0} Baixas`);
-      setVal('kpi-remediation-rate', `${(stats.iso9001_remediation_efficiency || 91.4).toFixed(1)}%`);
+
+      // --- Vulnerabilidades Pendentes = total acionável − Remediadas − Risco Aceito ---
+      const tb = stats.treatment_breakdown || {};
+      const tbGet = (status, key) => ((tb[status] || {})[key] || 0);
+      const closedStatuses = ['Remediated', 'Accepted_Risk'];
+      const sevKeys = ['critical', 'high', 'medium', 'low'];
+      const sevTotals = {
+        critical: stats.critical_count || 0,
+        high: stats.high_count || 0,
+        medium: stats.medium_count || 0,
+        low: stats.low_count || 0
+      };
+      const pendingBySev = {};
+      sevKeys.forEach(k => {
+        const closed = closedStatuses.reduce((acc, st) => acc + tbGet(st, k), 0);
+        pendingBySev[k] = Math.max(0, sevTotals[k] - closed);
+      });
+      const pendingTotal = sevKeys.reduce((acc, k) => acc + pendingBySev[k], 0);
+
+      setVal('kpi-total-open-vulns', pendingTotal.toLocaleString());
+      setVal('kpi-open-vulns-breakdown', `${pendingBySev.critical} Críticas • ${pendingBySev.high} Altas • ${pendingBySev.medium} Médias • ${pendingBySev.low} Baixas`);
+      sevKeys.forEach(k => {
+        const seg = document.getElementById(`kpi-open-bar-${k}`);
+        if (seg) seg.style.width = pendingTotal > 0 ? `${(pendingBySev[k] / pendingTotal) * 100}%` : '0%';
+      });
+
+      // --- Eficácia de Remediação = Remediadas / (Total acionável − Risco Aceito) × 100 ---
+      // Risco aceito é excluído do denominador: é decisão formal de não corrigir, não falha de remediação.
+      const actionableTotal = sevKeys.reduce((acc, k) => acc + sevTotals[k], 0);
+      const remediatedTotal = tbGet('Remediated', 'total');
+      const acceptedTotal = tbGet('Accepted_Risk', 'total');
+      const remediableBase = Math.max(0, actionableTotal - acceptedTotal);
+      const remediationRate = remediableBase > 0 ? (remediatedTotal / remediableBase) * 100 : null;
+
+      const remRateEl = document.getElementById('kpi-remediation-rate');
+      if (remRateEl) {
+        remRateEl.textContent = remediationRate === null ? '—' : `${remediationRate.toFixed(1)}%`;
+        remRateEl.classList.toggle('text-emerald-600', remediationRate !== null);
+        remRateEl.classList.toggle('dark:text-emerald-400', remediationRate !== null);
+        remRateEl.classList.toggle('text-slate-400', remediationRate === null);
+        remRateEl.classList.toggle('dark:text-slate-500', remediationRate === null);
+      }
       setVal('kpi-total-monitored-hosts', (stats.total_unique_hosts || 0).toLocaleString());
-      const postureScore = stats.iso27001_risk_score !== undefined ? Math.max(10, Math.min(100, Math.round(100 - (stats.iso27001_risk_score * 8.5)))) : 82;
-      setVal('kpi-posture-score', postureScore.toString());
+      // Postura de Segurança ISO/IEC 27001 (Normalizado 10 a 100 via decaimento logarítmico)
+      const rawRiskScore = Number(stats.iso27001_risk_score || 0);
+      const postureScore = (stats.posture_score !== undefined && stats.posture_score !== null)
+        ? stats.posture_score
+        : Math.max(10, Math.min(100, Math.round(100 - (16.0 * Math.log(1.0 + rawRiskScore)))));
+
+      const postureEl = document.getElementById('kpi-posture-score');
+      if (postureEl) {
+        postureEl.textContent = postureScore.toString();
+        postureEl.className = 'text-3xl sm:text-4xl font-extrabold font-mono tabular-nums ' + (
+          postureScore >= 80 
+            ? 'text-teal-700 dark:text-teal-300' 
+            : (postureScore >= 50 
+                ? 'text-amber-600 dark:text-amber-400' 
+                : 'text-rose-600 dark:text-rose-400')
+        );
+      }
       const postureBar = document.getElementById('kpi-posture-bar');
-      if (postureBar) postureBar.style.width = `${postureScore}%`;
+      if (postureBar) {
+        postureBar.style.width = `${postureScore}%`;
+        postureBar.className = 'h-2 rounded-full transition-all duration-500 ' + (
+          postureScore >= 80 
+            ? 'bg-teal-600' 
+            : (postureScore >= 50 
+                ? 'bg-amber-500' 
+                : 'bg-rose-500')
+        );
+      }
       const remBar = document.getElementById('kpi-remediation-bar');
-      if (remBar) remBar.style.width = `${Math.min(100, stats.iso9001_remediation_efficiency || 91.4)}%`;
+      if (remBar) remBar.style.width = `${remediationRate === null ? 0 : Math.min(100, remediationRate)}%`;
       const hostBar = document.getElementById('kpi-host-bar');
       if (hostBar) hostBar.style.width = `${Math.min(100, (stats.total_unique_hosts || 0) * 10)}%`;
 
@@ -1053,18 +1131,18 @@ const App = {
       setVal('iso-risk-score', (stats.iso27001_risk_score || 0).toFixed(1));
       const effEl = document.getElementById('iso-efficiency');
       const effSubEl = document.getElementById('iso-efficiency-sub');
-      if (stats.iso9001_remediation_efficiency !== null && stats.iso9001_remediation_efficiency !== undefined && stats.iso9001_remediation_efficiency > 0) {
-        if (effEl) {
-          effEl.textContent = `${stats.iso9001_remediation_efficiency.toFixed(1)}%`;
-          effEl.className = 'text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono';
+      if (effEl) {
+        effEl.textContent = remediableBase > 0 ? `${remediatedTotal.toLocaleString()} / ${remediableBase.toLocaleString()}` : '';
+        effEl.className = 'text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300';
+      }
+      if (effSubEl) {
+        if (remediationRate === null) {
+          effSubEl.textContent = 'Sem dados de remediação';
+        } else {
+          effSubEl.textContent = acceptedTotal > 0
+            ? `Remediadas ÷ acionáveis (exclui ${acceptedTotal.toLocaleString()} risco aceito)`
+            : 'Remediadas ÷ vulnerabilidades acionáveis';
         }
-        if (effSubEl) effSubEl.textContent = 'Taxa de Resolução';
-      } else {
-        if (effEl) {
-          effEl.textContent = '-';
-          effEl.className = 'text-2xl font-extrabold text-slate-400 dark:text-slate-500 font-mono';
-        }
-        if (effSubEl) effSubEl.textContent = 'Sem dados de remediação';
       }
 
       // 1. Tenable VPR Breakdown
@@ -1233,41 +1311,92 @@ const App = {
 
     try {
       const vulns = await API.getTopCritical(groupId, 100);
+      this.state.top100RawData = vulns || [];
       const countEl = document.getElementById('top100-count');
-      if (countEl) countEl.textContent = `${vulns.length} Vulnerabilidades`;
+      if (countEl) countEl.textContent = `${(vulns || []).length} Vulnerabilidades`;
 
-      if (!vulns || vulns.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-500">Nenhuma vulnerabilidade crítica encontrada na base.</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = vulns.map((v, idx) => `
-        <tr class="hover:bg-slate-800/40 transition">
-          <td class="font-bold text-slate-400">#${idx + 1}</td>
-          <td class="font-mono text-xs text-slate-400">${v.plugin_id}</td>
-          <td>
-            <div class="font-medium text-slate-100">${v.plugin_name}</div>
-            <div class="text-xs text-slate-400 mt-0.5 line-clamp-1">${v.synopsis || ''}</div>
-          </td>
-          <td>${this.formatCveBadge(v.cve, v.cve_list, v.cve_count)}</td>
-          <td>
-            <span class="badge-critical px-2 py-0.5 rounded text-xs font-bold">CVSS ${v.cvss_v3 ? v.cvss_v3.toFixed(1) : '9.8'}</span>
-          </td>
-          <td class="text-center">
-            <span class="px-2.5 py-1 rounded bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold">${v.affected_hosts_count} Hosts</span>
-          </td>
-          <td>
-            ${v.exploit_available ? `<span class="badge-exploit px-2 py-0.5 rounded text-xs font-bold" title="${v.exploit_frameworks || 'Exploit disponível'}">SIM (${v.exploit_frameworks ? v.exploit_frameworks.split(',')[0] : 'Exploit'})</span>` : '<span class="text-slate-500 text-xs">Não</span>'}
-          </td>
-          <td class="text-right">
-            <button onclick="App.openPluginSolutionModal('${v.plugin_id}')" class="px-3 py-1 text-xs font-medium rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 cursor-pointer">Ver Solução</button>
-          </td>
-        </tr>
-      `).join('');
-      this.refreshIcons();
+      this.updateTop100SortUI();
+      this.renderTop100Table();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-rose-400">Erro ao carregar dados: ${e.message}</td></tr>`;
     }
+  },
+
+  toggleTop100Sort(field) {
+    if (this.state.top100SortField === field) {
+      this.state.top100SortOrder = this.state.top100SortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.state.top100SortField = field;
+      this.state.top100SortOrder = (field === 'plugin_name' || field === 'plugin_id') ? 'asc' : 'desc';
+    }
+    this.updateTop100SortUI();
+    this.renderTop100Table();
+  },
+
+  updateTop100SortUI() {
+    ['plugin_id', 'plugin_name', 'cvss_v3', 'affected_hosts_count', 'exploit_available'].forEach(f => {
+      const th = document.getElementById(`th-top100-${f}`);
+      const ind = document.getElementById(`th-top100-sort-${f}`);
+      if (th && ind) {
+        if (this.state.top100SortField === f) {
+          th.classList.add('active-sort');
+          ind.textContent = this.state.top100SortOrder === 'asc' ? '▲' : '▼';
+        } else {
+          th.classList.remove('active-sort');
+          ind.textContent = '⇅';
+        }
+      }
+    });
+  },
+
+  renderTop100Table() {
+    const tbody = document.getElementById('top100-tbody');
+    if (!tbody) return;
+    const items = [...(this.state.top100RawData || [])];
+    const field = this.state.top100SortField || 'cvss_v3';
+    const order = this.state.top100SortOrder || 'desc';
+
+    items.sort((a, b) => {
+      let valA = a[field];
+      let valB = b[field];
+      if (valA === undefined || valA === null) valA = '';
+      if (valB === undefined || valB === null) valB = '';
+      if (typeof valA === 'string') {
+        const cmp = valA.localeCompare(valB);
+        return order === 'asc' ? cmp : -cmp;
+      }
+      return order === 'asc' ? (Number(valA) - Number(valB)) : (Number(valB) - Number(valA));
+    });
+
+    if (items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-500">Nenhuma vulnerabilidade crítica encontrada na base.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map((v, idx) => `
+      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+        <td class="font-bold text-slate-500 dark:text-slate-400 text-center font-mono text-xs">#${idx + 1}</td>
+        <td class="font-mono text-xs text-slate-600 dark:text-slate-400">${v.plugin_id}</td>
+        <td>
+          <div class="font-medium text-slate-800 dark:text-slate-100">${v.plugin_name}</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">${v.synopsis || ''}</div>
+        </td>
+        <td>${this.formatCveBadge(v.cve, v.cve_list, v.cve_count)}</td>
+        <td class="text-center">
+          <span class="badge-critical px-2 py-0.5 rounded text-xs font-bold font-mono">CVSS ${v.cvss_v3 ? v.cvss_v3.toFixed(1) : '9.8'}</span>
+        </td>
+        <td class="text-center">
+          <span class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold font-mono">${v.affected_hosts_count} Hosts</span>
+        </td>
+        <td class="text-center">
+          ${v.exploit_available ? `<span class="badge-exploit px-2 py-0.5 rounded text-xs font-bold" title="${v.exploit_frameworks || 'Exploit disponível'}">SIM (${v.exploit_frameworks ? v.exploit_frameworks.split(',')[0] : 'Exploit'})</span>` : '<span class="text-slate-400 text-xs">Não</span>'}
+        </td>
+        <td class="text-right">
+          <button onclick="App.openPluginSolutionModal('${v.plugin_id}')" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/60 cursor-pointer">Ver Solução</button>
+        </td>
+      </tr>
+    `).join('');
+    this.refreshIcons();
   },
 
   // --- TOP 20 HOSTS WITH EXPLOITS VIEW ---
@@ -1279,53 +1408,108 @@ const App = {
 
     try {
       const hosts = await API.getTopExploits(groupId, 20);
+      this.state.top20RawData = hosts || [];
       const countEl = document.getElementById('top20-count');
-      if (countEl) countEl.textContent = `${hosts.length} Hosts Prioritários`;
+      if (countEl) countEl.textContent = `${(hosts || []).length} Hosts Prioritários`;
 
-      if (!hosts || hosts.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-500">Nenhum host com vulnerabilidades críticas e exploits cadastrado.</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = hosts.map((h, idx) => {
-        const score = Number(h.risk_score || 0);
-        let riskBadgeClass = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700';
-        if (score >= 120) {
-          riskBadgeClass = 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border-rose-200 dark:border-rose-800/60';
-        } else if (score >= 60) {
-          riskBadgeClass = 'bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300 border-orange-200 dark:border-orange-800/60';
-        } else if (score >= 20) {
-          riskBadgeClass = 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
-        }
-
-        return `
-        <tr class="hover:bg-slate-800/40 transition">
-          <td class="font-bold text-slate-400">#${idx + 1}</td>
-          <td>
-            <div class="font-bold text-sky-400 font-mono text-sm">${h.ip_address}</div>
-            <div class="text-xs text-slate-400">${h.hostname || 'Hostname não detectado'}</div>
-          </td>
-          <td class="text-xs text-slate-300">${h.asset_group_name || '-'}</td>
-          <td class="text-xs text-slate-400">${h.os || 'Linux/Windows'}</td>
-          <td>
-            <span class="badge-critical px-2.5 py-1 rounded text-xs font-extrabold">${h.exploitable_critical_count} Críticas c/ Exploit</span>
-          </td>
-          <td class="text-xs text-slate-300">
-            <span class="text-rose-400 font-bold">${h.critical_count}</span> Crít / <span class="text-orange-400 font-bold">${h.high_count}</span> Altas
-          </td>
-          <td>
-            <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-extrabold font-mono border ${riskBadgeClass}">${score.toFixed(1)}</span>
-          </td>
-          <td class="text-right">
-            <button onclick="App.openHostModal(${h.host_id})" class="px-3 py-1.5 text-xs font-medium rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 cursor-pointer">Analisar Host</button>
-          </td>
-        </tr>
-      `;
-      }).join('');
-      this.refreshIcons();
+      this.updateTop20SortUI();
+      this.renderTop20Table();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-rose-400">Erro ao carregar dados: ${e.message}</td></tr>`;
     }
+  },
+
+  toggleTop20Sort(field) {
+    if (this.state.top20SortField === field) {
+      this.state.top20SortOrder = this.state.top20SortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.state.top20SortField = field;
+      this.state.top20SortOrder = (field === 'ip_address' || field === 'hostname' || field === 'asset_group_name' || field === 'os') ? 'asc' : 'desc';
+    }
+    this.updateTop20SortUI();
+    this.renderTop20Table();
+  },
+
+  updateTop20SortUI() {
+    ['ip_address', 'asset_group_name', 'os', 'exploitable_critical_count', 'total_vulns', 'risk_score'].forEach(f => {
+      const th = document.getElementById(`th-top20-${f}`);
+      const ind = document.getElementById(`th-top20-sort-${f}`);
+      if (th && ind) {
+        if (this.state.top20SortField === f) {
+          th.classList.add('active-sort');
+          ind.textContent = this.state.top20SortOrder === 'asc' ? '▲' : '▼';
+        } else {
+          th.classList.remove('active-sort');
+          ind.textContent = '⇅';
+        }
+      }
+    });
+  },
+
+  renderTop20Table() {
+    const tbody = document.getElementById('top20hosts-tbody');
+    if (!tbody) return;
+    const items = [...(this.state.top20RawData || [])];
+    const field = this.state.top20SortField || 'risk_score';
+    const order = this.state.top20SortOrder || 'desc';
+
+    items.sort((a, b) => {
+      let valA = a[field];
+      let valB = b[field];
+      if (field === 'total_vulns') {
+        valA = Number(a.critical_count || 0) + Number(a.high_count || 0);
+        valB = Number(b.critical_count || 0) + Number(b.high_count || 0);
+      }
+      if (valA === undefined || valA === null) valA = '';
+      if (valB === undefined || valB === null) valB = '';
+      if (typeof valA === 'string') {
+        const cmp = valA.localeCompare(valB);
+        return order === 'asc' ? cmp : -cmp;
+      }
+      return order === 'asc' ? (Number(valA) - Number(valB)) : (Number(valB) - Number(valA));
+    });
+
+    if (items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-500">Nenhum host com vulnerabilidades críticas e exploits cadastrado.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map((h, idx) => {
+      const score = Number(h.risk_score || 0);
+      let riskBadgeClass = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700';
+      if (score >= 120) {
+        riskBadgeClass = 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border-rose-200 dark:border-rose-800/60';
+      } else if (score >= 60) {
+        riskBadgeClass = 'bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300 border-orange-200 dark:border-orange-800/60';
+      } else if (score >= 20) {
+        riskBadgeClass = 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
+      }
+
+      return `
+      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+        <td class="font-bold text-slate-500 dark:text-slate-400 text-center font-mono text-xs">#${idx + 1}</td>
+        <td>
+          <div class="font-bold text-teal-700 dark:text-teal-400 font-mono text-xs">${h.ip_address}</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">${h.hostname || 'Hostname não detectado'}</div>
+        </td>
+        <td class="text-xs text-slate-700 dark:text-slate-300">${h.asset_group_name || '-'}</td>
+        <td class="text-xs text-slate-500 dark:text-slate-400">${h.os || 'Linux/Windows'}</td>
+        <td class="text-center">
+          <span class="badge-critical px-2.5 py-1 rounded text-xs font-extrabold font-mono">${h.exploitable_critical_count} Críticas c/ Exploit</span>
+        </td>
+        <td class="text-xs text-slate-700 dark:text-slate-300 text-center font-mono">
+          <span class="text-rose-600 dark:text-rose-400 font-bold">${h.critical_count}</span> Crít / <span class="text-orange-600 dark:text-orange-400 font-bold">${h.high_count}</span> Altas
+        </td>
+        <td class="text-center">
+          <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-extrabold font-mono border ${riskBadgeClass}">${score.toFixed(1)}</span>
+        </td>
+        <td class="text-right">
+          <button onclick="App.openHostModal(${h.host_id})" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/60 cursor-pointer">Analisar Host</button>
+        </td>
+      </tr>
+    `;
+    }).join('');
+    this.refreshIcons();
   },
 
   // --- INVENTORY MODULE ---
@@ -1344,32 +1528,27 @@ const App = {
     const assetGroupId = this.state.selectedAssetGroupId || '';
     const search = document.getElementById('inventory-search-input')?.value.trim() || '';
     const severityFilter = document.getElementById('inventory-sev-filter')?.value || '';
-    const sortVal = document.getElementById('inventory-sort-filter')?.value || 'risk_score_desc';
     
-    let sortBy = 'risk_score';
-    let sortOrder = 'desc';
-    if (sortVal === 'risk_score_asc') {
-      sortBy = 'risk_score';
-      sortOrder = 'asc';
-    } else if (sortVal === 'critical_desc') {
-      sortBy = 'critical_count';
-      sortOrder = 'desc';
-    } else if (sortVal === 'high_desc') {
-      sortBy = 'high_count';
-      sortOrder = 'desc';
-    } else if (sortVal === 'ip_asc') {
-      sortBy = 'ip_address';
-      sortOrder = 'asc';
-    } else if (sortVal === 'ip_desc') {
-      sortBy = 'ip_address';
-      sortOrder = 'desc';
-    } else if (sortVal === 'hostname_asc') {
-      sortBy = 'hostname';
-      sortOrder = 'asc';
-    } else if (sortVal === 'os_asc') {
-      sortBy = 'os';
-      sortOrder = 'asc';
+    // Check if dropdown was manually changed
+    const sortVal = document.getElementById('inventory-sort-filter')?.value;
+    if (sortVal && !this._sortFromHeader) {
+      if (sortVal === 'risk_score_asc') { this.state.inventorySortBy = 'risk_score'; this.state.inventorySortOrder = 'asc'; }
+      else if (sortVal === 'risk_score_desc') { this.state.inventorySortBy = 'risk_score'; this.state.inventorySortOrder = 'desc'; }
+      else if (sortVal === 'critical_desc') { this.state.inventorySortBy = 'critical_count'; this.state.inventorySortOrder = 'desc'; }
+      else if (sortVal === 'high_desc') { this.state.inventorySortBy = 'high_count'; this.state.inventorySortOrder = 'desc'; }
+      else if (sortVal === 'ip_asc') { this.state.inventorySortBy = 'ip_address'; this.state.inventorySortOrder = 'asc'; }
+      else if (sortVal === 'ip_desc') { this.state.inventorySortBy = 'ip_address'; this.state.inventorySortOrder = 'desc'; }
+      else if (sortVal === 'hostname_asc') { this.state.inventorySortBy = 'hostname'; this.state.inventorySortOrder = 'asc'; }
+      else if (sortVal === 'os_asc') { this.state.inventorySortBy = 'os'; this.state.inventorySortOrder = 'asc'; }
     }
+    this._sortFromHeader = false;
+
+    this.state.inventorySortBy = this.state.inventorySortBy || 'risk_score';
+    this.state.inventorySortOrder = this.state.inventorySortOrder || 'desc';
+    this.updateInventorySortUI();
+
+    const sortBy = this.state.inventorySortBy;
+    const sortOrder = this.state.inventorySortOrder;
 
     const page = this.state.inventoryPage || 1;
     const pageSize = this.state.inventoryPageSize || 50;
@@ -1444,9 +1623,13 @@ const App = {
           riskBadgeClass = 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 font-bold';
         }
 
-        const osDisplay = h.os ? this.escapeHtml(h.os) : '<span class="text-slate-400 italic text-[11px]">Não detectado</span>';
-        const hostnameDisplay = h.hostname ? this.escapeHtml(h.hostname) : '<span class="text-slate-400 italic text-[11px]">Não detectado</span>';
+        const osDisplay = h.os ? this.escapeHtml(h.os) : '<span class="text-slate-400 italic text-xs">Não detectado</span>';
+        const hostnameDisplay = h.hostname ? this.escapeHtml(h.hostname) : '<span class="text-slate-400 italic text-xs">Não detectado</span>';
         const groupDisplay = h.asset_group_name ? this.escapeHtml(h.asset_group_name) : '-';
+        const critClass = h.critical_count > 0 ? 'bg-red-100 text-red-700 dark:bg-red-950/70 dark:text-red-300 border border-red-200 dark:border-red-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-800/60';
+        const highClass = h.high_count > 0 ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/70 dark:text-orange-300 border border-orange-200 dark:border-orange-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-800/60';
+        const medClass = h.medium_count > 0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-200 dark:border-amber-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-800/60';
+        const lowClass = h.low_count > 0 ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-800/60';
 
         return `
           <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
@@ -1469,24 +1652,24 @@ const App = {
               </div>
             </td>
             <td>
-              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[160px]" title="${h.asset_group_name || ''}">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[160px]" title="${h.asset_group_name || ''}">
                 ${groupDisplay}
               </span>
             </td>
             <td class="text-center">
-              <span class="inline-block min-w-[28px] px-2 py-0.5 rounded text-xs font-extrabold ${h.critical_count > 0 ? 'bg-red-100 text-red-700 dark:bg-red-950/70 dark:text-red-300 border border-red-200 dark:border-red-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-800/60'}">${h.critical_count}</span>
+              <span class="inline-block min-w-[28px] px-2 py-0.5 rounded text-xs font-extrabold font-mono tabular-nums ${critClass}">${h.critical_count}</span>
             </td>
             <td class="text-center">
-              <span class="inline-block min-w-[28px] px-2 py-0.5 rounded text-xs font-extrabold ${h.high_count > 0 ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/70 dark:text-orange-300 border border-orange-200 dark:border-orange-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-800/60'}">${h.high_count}</span>
+              <span class="inline-block min-w-[28px] px-2 py-0.5 rounded text-xs font-extrabold font-mono tabular-nums ${highClass}">${h.high_count}</span>
             </td>
             <td class="text-center">
-              <span class="inline-block min-w-[28px] px-2 py-0.5 rounded text-xs font-extrabold ${h.medium_count > 0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-200 dark:border-amber-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-800/60'}">${h.medium_count}</span>
+              <span class="inline-block min-w-[28px] px-2 py-0.5 rounded text-xs font-extrabold font-mono tabular-nums ${medClass}">${h.medium_count}</span>
             </td>
             <td class="text-center">
-              <span class="inline-block min-w-[28px] px-2 py-0.5 rounded text-xs font-extrabold ${h.low_count > 0 ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-800/60'}">${h.low_count}</span>
+              <span class="inline-block min-w-[28px] px-2 py-0.5 rounded text-xs font-extrabold font-mono tabular-nums ${lowClass}">${h.low_count}</span>
             </td>
             <td class="text-center">
-              <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono border ${riskBadgeClass}">
+              <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums border ${riskBadgeClass}">
                 ${score.toFixed(1)}
               </span>
             </td>
@@ -1510,6 +1693,45 @@ const App = {
     } catch (e) {
       console.error('Error loading inventory data:', e);
       tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-rose-500">Erro ao carregar inventário: ${this.escapeHtml(e.message)}</td></tr>`;
+    }
+  },
+
+  toggleInventorySort(field) {
+    this._sortFromHeader = true;
+    if (this.state.inventorySortBy === field) {
+      this.state.inventorySortOrder = this.state.inventorySortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.state.inventorySortBy = field;
+      this.state.inventorySortOrder = (['risk_score', 'critical_count', 'high_count', 'medium_count', 'low_count'].includes(field)) ? 'desc' : 'asc';
+    }
+    this.updateInventorySortUI();
+    this.state.inventoryPage = 1;
+    this.loadInventoryData();
+  },
+
+  updateInventorySortUI() {
+    const fields = ['ip_address', 'hostname', 'os', 'asset_group_name', 'critical_count', 'high_count', 'medium_count', 'low_count', 'risk_score'];
+    fields.forEach(f => {
+      const th = document.getElementById(`th-inv-${f}`);
+      const indicator = document.getElementById(`th-inv-sort-${f}`);
+      if (!th || !indicator) return;
+      if (this.state.inventorySortBy === f) {
+        th.classList.add('active-sort');
+        indicator.textContent = this.state.inventorySortOrder === 'asc' ? '↑' : '↓';
+      } else {
+        th.classList.remove('active-sort');
+        indicator.textContent = '⇅';
+      }
+    });
+    const sortSelect = document.getElementById('inventory-sort-filter');
+    if (sortSelect) {
+      const targetVal = `${this.state.inventorySortBy}_${this.state.inventorySortOrder}`;
+      for (let i = 0; i < sortSelect.options.length; i++) {
+        if (sortSelect.options[i].value === targetVal) {
+          sortSelect.selectedIndex = i;
+          break;
+        }
+      }
     }
   },
 
@@ -1551,9 +1773,7 @@ const App = {
       for (let p = startPill; p <= endPill; p++) {
         const btn = document.createElement('button');
         btn.textContent = String(p);
-        btn.className = p === page
-          ? 'px-3 py-1 rounded-lg bg-sky-600 text-white font-bold text-xs cursor-pointer shadow-xs'
-          : 'px-3 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs cursor-pointer transition';
+        btn.className = p === page ? 'gvul-pagination-btn active' : 'gvul-pagination-btn';
         btn.onclick = () => this.setInventoryPage(p);
         pillsContainer.appendChild(btn);
       }
@@ -1573,6 +1793,9 @@ const App = {
     if (sInput) sInput.value = '';
     if (sevFilter) sevFilter.value = '';
     if (sortFilter) sortFilter.value = 'risk_score_desc';
+    this.state.inventorySortBy = 'risk_score';
+    this.state.inventorySortOrder = 'desc';
+    this.updateInventorySortUI();
     this.state.inventoryPage = 1;
     this.loadInventoryData();
   },
@@ -1906,8 +2129,8 @@ const App = {
                 <span>${g.name}</span>
               </span>
               ${hasSubgroups 
-                ? `<span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 w-fit">🏢 Nível 1 - Grupo Corporativo (${g.subgroups_count} subgrupos subordinados)</span>` 
-                : `<span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-500/20 text-slate-400 border border-slate-500/30 w-fit">🏢 Nível 1 - Grupo Independente</span>`}
+                ? `<span class="inline-block mt-1 px-2 py-0.5 rounded text-xs font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 w-fit">🏢 Nível 1 - Grupo Corporativo (${g.subgroups_count} subgrupos subordinados)</span>` 
+                : `<span class="inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-500/20 text-slate-400 border border-slate-500/30 w-fit">🏢 Nível 1 - Grupo Independente</span>`}
             </div>`;
         } else if (isLevel2) {
           nameHtml = `
@@ -1917,10 +2140,10 @@ const App = {
                 <span>${g.name}</span>
               </span>
               <div class="flex items-center space-x-2 mt-1">
-                <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/15 text-teal-300 border border-teal-500/30 w-fit">
+                <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-teal-500/15 text-teal-300 border border-teal-500/30 w-fit">
                   📍 Nível 2 - Subgrupo${hasSubgroups ? ` (${g.subgroups_count} subordinados)` : ''}
                 </span>
-                <span class="text-[10px] text-slate-400">
+                <span class="text-xs text-slate-400">
                   Subordinado a: <strong class="text-slate-300">${g.parent_name || 'Grupo Superior'}</strong>
                 </span>
               </div>
@@ -1935,10 +2158,10 @@ const App = {
                 <span>${g.name}</span>
               </span>
               <div class="flex items-center space-x-2 mt-1">
-                <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 w-fit">
+                <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 w-fit">
                   ⤷ Nível ${lvl} - Sub-subgrupo / Área${hasSubgroups ? ` (${g.subgroups_count} subordinados)` : ''}
                 </span>
-                <span class="text-[10px] text-slate-400">
+                <span class="text-xs text-slate-400">
                   Caminho: <strong class="text-slate-300">${g.hierarchy_path || g.parent_name || ''}</strong>
                 </span>
               </div>
@@ -2282,6 +2505,17 @@ const App = {
     this.renderComparativeDetailsTable();
   },
 
+  handleComparativePageSizeChange(newSize) {
+    this.comparativeState.pageSize = parseInt(newSize, 10) || 50;
+    this.comparativeState.page = 1;
+    this.renderComparativeDetailsTable();
+  },
+
+  setComparativePage(page) {
+    this.comparativeState.page = page;
+    this.renderComparativeDetailsTable();
+  },
+
   renderComparativeDetailsTable() {
     const report = this.state.comparativeReport;
     const tbody = document.getElementById('comp-details-tbody');
@@ -2336,15 +2570,29 @@ const App = {
     // Update pagination controls
     const pageInfoEl = document.getElementById('comp-page-info');
     const pageTotalEl = document.getElementById('comp-page-total');
-    const currPageEl = document.getElementById('comp-current-page');
     const prevBtn = document.getElementById('comp-prev-btn');
     const nextBtn = document.getElementById('comp-next-btn');
+    const pillsEl = document.getElementById('comp-page-pills');
 
     if (pageInfoEl) pageInfoEl.textContent = totalFiltered === 0 ? '0' : `${(startIdx + 1).toLocaleString()} - ${endIdx.toLocaleString()}`;
     if (pageTotalEl) pageTotalEl.textContent = totalFiltered.toLocaleString();
-    if (currPageEl) currPageEl.textContent = `${currentPage} / ${totalPages}`;
     if (prevBtn) prevBtn.disabled = currentPage <= 1;
     if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+
+    if (pillsEl) {
+      let pillsHtml = '';
+      const maxPills = 5;
+      let startPage = Math.max(1, currentPage - Math.floor(maxPills / 2));
+      let endPage = Math.min(totalPages, startPage + maxPills - 1);
+      if (endPage - startPage + 1 < maxPills) {
+        startPage = Math.max(1, endPage - maxPills + 1);
+      }
+      for (let p = startPage; p <= endPage; p++) {
+        const active = p === currentPage ? 'active' : '';
+        pillsHtml += `<button type="button" onclick="App.setComparativePage(${p})" class="gvul-pagination-btn ${active}">${p}</button>`;
+      }
+      pillsEl.innerHTML = pillsHtml;
+    }
 
     if (totalFiltered === 0) {
       tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-500">Nenhum apontamento encontrado com os filtros selecionados.</td></tr>`;
@@ -2422,19 +2670,37 @@ const App = {
       const endIdx = Math.min(startIdx + pageSize, total);
       const pageInfoEl = document.getElementById('vuln-page-info');
       const pageTotalEl = document.getElementById('vuln-page-total');
-      const currPageEl = document.getElementById('vuln-current-page');
       const prevBtn = document.getElementById('vuln-prev-btn');
       const nextBtn = document.getElementById('vuln-next-btn');
       const firstBtn = document.getElementById('vuln-first-btn');
       const lastBtn = document.getElementById('vuln-last-btn');
+      const pillsContainer = document.getElementById('vuln-page-pills');
 
       if (pageInfoEl) pageInfoEl.textContent = total === 0 ? '0' : `${(startIdx + 1).toLocaleString()} - ${endIdx.toLocaleString()}`;
       if (pageTotalEl) pageTotalEl.textContent = total.toLocaleString();
-      if (currPageEl) currPageEl.textContent = `${page} / ${totalPages}`;
       if (prevBtn) prevBtn.disabled = page <= 1;
       if (firstBtn) firstBtn.disabled = page <= 1;
       if (nextBtn) nextBtn.disabled = page >= totalPages;
       if (lastBtn) lastBtn.disabled = page >= totalPages;
+
+      if (pillsContainer) {
+        pillsContainer.innerHTML = '';
+        if (totalPages > 1) {
+          const maxPills = 5;
+          let startPill = Math.max(1, page - Math.floor(maxPills / 2));
+          let endPill = Math.min(totalPages, startPill + maxPills - 1);
+          if (endPill - startPill + 1 < maxPills) {
+            startPill = Math.max(1, endPill - maxPills + 1);
+          }
+          for (let p = startPill; p <= endPill; p++) {
+            const btn = document.createElement('button');
+            btn.textContent = String(p);
+            btn.className = p === page ? 'gvul-pagination-btn active' : 'gvul-pagination-btn';
+            btn.onclick = () => this.handleVulnPageJump(p);
+            pillsContainer.appendChild(btn);
+          }
+        }
+      }
 
       if (!vulns || vulns.length === 0) {
         tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-500">Nenhuma vulnerabilidade encontrada com os filtros aplicados.</td></tr>`;
@@ -2445,47 +2711,47 @@ const App = {
       const isAuditor = (this.state.user?.role || '').toLowerCase() === 'auditor';
 
       tbody.innerHTML = vulns.map(v => `
-        <tr class="hover:bg-slate-800/40 transition ${this.state.selectedVulnIds.has(v.id) ? 'bg-cyan-950/20' : ''}">
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition ${this.state.selectedVulnIds.has(v.id) ? 'bg-teal-50/50 dark:bg-cyan-950/20' : ''}">
           <td class="text-center">
             ${isAuditor 
-              ? `<span title="Modo Auditoria: Somente Leitura"><i data-lucide="eye" class="w-3.5 h-3.5 inline text-slate-500"></i></span>`
-              : `<input type="checkbox" class="vuln-row-chk rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-cyan-500 cursor-pointer" value="${v.id}" ${this.state.selectedVulnIds.has(v.id) ? 'checked' : ''} onchange="App.handleVulnSelect(${v.id}, this.checked)">`
+              ? `<span title="Modo Auditoria: Somente Leitura"><i data-lucide="eye" class="w-3.5 h-3.5 inline text-slate-400"></i></span>`
+              : `<input type="checkbox" class="vuln-row-chk rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-teal-600 focus:ring-teal-500 cursor-pointer" value="${v.id}" ${this.state.selectedVulnIds.has(v.id) ? 'checked' : ''} onchange="App.handleVulnSelect(${v.id}, this.checked)">`
             }
           </td>
           <td>
             <span class="badge-${v.severity.toLowerCase()} px-2 py-0.5 rounded text-xs font-bold">${v.severity}</span>
           </td>
           <td>
-            <button type="button" onclick="App.setHostFilter('${v.host_ip}')" class="text-left font-semibold text-sky-400 hover:text-cyan-300 font-mono text-xs hover:underline inline-flex items-center gap-1 group cursor-pointer" title="Filtrar somente vulnerabilidades deste Host/IP (${v.host_ip})">
+            <button type="button" onclick="App.setHostFilter('${v.host_ip}')" class="text-left font-semibold text-teal-700 dark:text-teal-400 hover:underline font-mono text-xs inline-flex items-center gap-1 group cursor-pointer" title="Filtrar somente vulnerabilidades deste Host/IP (${v.host_ip})">
               <span>${v.host_ip}</span>
-              <i data-lucide="filter" class="w-3 h-3 opacity-0 group-hover:opacity-100 transition text-cyan-400"></i>
+              <i data-lucide="filter" class="w-3 h-3 opacity-0 group-hover:opacity-100 transition text-teal-600 dark:text-teal-400"></i>
             </button>
-            <div class="text-xs text-slate-400">${v.host_name || ''}</div>
+            <div class="text-xs text-slate-500 dark:text-slate-400">${v.host_name || ''}</div>
           </td>
           <td>
-            <div class="font-medium text-slate-200 line-clamp-1">${v.plugin_name}</div>
+            <div class="font-medium text-slate-800 dark:text-slate-200 line-clamp-1">${v.plugin_name}</div>
             <div class="mt-0.5">${this.formatCveBadge(v.cve, v.cve_list, v.cve_count)}</div>
           </td>
-          <td class="text-xs font-mono text-slate-300">${v.port}/${v.protocol}</td>
+          <td class="text-xs font-mono text-slate-600 dark:text-slate-300">${v.port}/${v.protocol}</td>
           <td class="text-center">
-            <span class="px-2 py-0.5 rounded text-xs font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30" title="Primeira detecção: ${v.first_found ? new Date(v.first_found).toLocaleDateString('pt-BR') : '-'}">${v.aging_days || 0}d</span>
+            <span class="px-2 py-0.5 rounded text-xs font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30" title="Primeira detecção: ${v.first_found ? new Date(v.first_found).toLocaleDateString('pt-BR') : '-'}">${v.aging_days || 0}d</span>
           </td>
           <td class="text-center">
-            ${v.exploit_available ? '<span class="badge-exploit px-2 py-0.5 rounded text-xs font-bold">SIM</span>' : '<span class="text-slate-500 text-xs">Não</span>'}
+            ${v.exploit_available ? '<span class="badge-exploit px-2 py-0.5 rounded text-xs font-bold">SIM</span>' : '<span class="text-slate-400 text-xs">Não</span>'}
           </td>
           <td>
             <div class="flex flex-col space-y-0.5">
               <span class="px-2 py-0.5 rounded text-xs font-semibold w-fit ${this.getTreatmentStatusBadgeClass(v.treatment_status)}">${v.treatment_status}</span>
-              <span class="text-[10px] text-slate-400 flex items-center">
-                <i data-lucide="user" class="inline w-3 h-3 text-sky-400 mr-1"></i>
+              <span class="text-xs text-slate-500 dark:text-slate-400 flex items-center">
+                <i data-lucide="user" class="inline w-3 h-3 text-teal-600 dark:text-teal-400 mr-1"></i>
                 ${v.treated_by_username ? v.treated_by_username : 'Não tratado'}
               </span>
             </div>
           </td>
           <td class="text-right">
             ${isAuditor
-              ? `<button onclick="App.openVulnDetailsModal(${v.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 cursor-pointer flex items-center space-x-1 ml-auto"><i data-lucide="eye" class="w-3 h-3"></i><span>Auditar / Detalhes</span></button>`
-              : `<button onclick="App.openVulnDetailsModal(${v.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 cursor-pointer">Tratativa / Detalhes</button>`
+              ? `<button onclick="App.openVulnDetailsModal(${v.id})" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 cursor-pointer flex items-center space-x-1 ml-auto"><i data-lucide="eye" class="w-3 h-3"></i><span>Auditar / Detalhes</span></button>`
+              : `<button onclick="App.openVulnDetailsModal(${v.id})" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/60 cursor-pointer">Tratativa / Detalhes</button>`
             }
           </td>
         </tr>
@@ -2509,6 +2775,12 @@ const App = {
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-rose-400">Erro: ${e.message}</td></tr>`;
     }
+  },
+
+  handleVulnPageSizeChange(newSize) {
+    this.state.vulnPageSize = parseInt(newSize, 10) || 50;
+    this.state.vulnPage = 1;
+    this.loadVulnerabilitiesList();
   },
 
   handleVulnPageChange(delta) {
@@ -2728,8 +3000,8 @@ const App = {
     switch (status) {
       case 'Remediated': return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
       case 'In_Remediation': return 'bg-amber-500/20 text-amber-300 border border-amber-500/40';
-      case 'In_Action_Plan': return 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40';
-      case 'Accepted_Risk': return 'bg-purple-500/20 text-purple-300 border border-purple-500/40';
+      case 'In_Action_Plan': return 'bg-teal-600/20 text-teal-300 border border-teal-600/40';
+      case 'Accepted_Risk': return 'bg-teal-500/20 text-teal-700 dark:text-teal-300 border border-teal-500/40';
       default: return 'bg-rose-500/20 text-rose-300 border border-rose-500/40';
     }
   },
@@ -2743,48 +3015,166 @@ const App = {
     try {
       const scans = await API.listScans(this.state.selectedAssetGroupId || null);
       this.state.scansList = scans || [];
-
-      if (!scans || scans.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-500">Nenhum scan importado para o grupo selecionado.</td></tr>`;
-        return;
-      }
-
-      const isAdmin = this.state.user && this.state.user.role === 'admin';
-
-      tbody.innerHTML = scans.map(s => `
-        <tr class="hover:bg-slate-800/40 transition">
-          <td>
-            <div class="font-semibold text-slate-200">${s.scan_name}</div>
-            <div class="text-[11px] text-slate-400 font-mono">${s.filename} (${(s.file_size_bytes / 1024).toFixed(1)} KB)</div>
-          </td>
-          <td>
-            <span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-cyan-300 font-medium border border-slate-700">${s.asset_group_name || '-'}</span>
-          </td>
-          <td class="text-center font-mono font-bold text-slate-200">${s.total_hosts}</td>
-          <td class="text-center font-mono font-bold text-slate-200">${s.total_findings}</td>
-          <td>
-            <div class="flex items-center space-x-1.5 text-xs font-mono font-bold">
-              <span class="text-red-400" title="Críticas">${s.critical_count}C</span>
-              <span class="text-slate-600">•</span>
-              <span class="text-orange-400" title="Altas">${s.high_count}A</span>
-              <span class="text-slate-600">•</span>
-              <span class="text-yellow-400" title="Médias">${s.medium_count}M</span>
-              <span class="text-slate-600">•</span>
-              <span class="text-sky-400" title="Baixas">${s.low_count}B</span>
-            </div>
-          </td>
-          <td class="text-xs text-slate-300 font-mono">${this.formatDateBR(s.scan_date)}</td>
-          <td class="text-xs text-slate-400 font-mono">${s.created_at ? this.formatDateTime(s.created_at) : '-'}</td>
-          <td class="text-right space-x-1">
-            ${isAdmin ? `<button onclick="App.handleDeleteScan(${s.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 cursor-pointer" title="Excluir Scan">Excluir</button>` : `<span class="text-xs text-slate-500 italic">Somente Leitura</span>`}
-          </td>
-        </tr>
-      `).join('');
-
-      this.refreshIcons();
+      this.state.scansPage = 1;
+      this.updateScansSortUI();
+      this.renderScansTable();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-rose-400">Erro: ${e.message}</td></tr>`;
     }
+  },
+
+  toggleScansSort(field) {
+    if (this.state.scansSortField === field) {
+      this.state.scansSortOrder = this.state.scansSortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.state.scansSortField = field;
+      this.state.scansSortOrder = (field === 'scan_name' || field === 'asset_group_name') ? 'asc' : 'desc';
+    }
+    this.updateScansSortUI();
+    this.renderScansTable();
+  },
+
+  updateScansSortUI() {
+    ['scan_name', 'asset_group_name', 'hosts_count', 'total_vulnerabilities', 'scan_date', 'created_at'].forEach(f => {
+      const th = document.getElementById(`th-scans-${f}`);
+      const ind = document.getElementById(`th-scans-sort-${f}`);
+      if (th && ind) {
+        if (this.state.scansSortField === f) {
+          th.classList.add('active-sort');
+          ind.textContent = this.state.scansSortOrder === 'asc' ? '▲' : '▼';
+        } else {
+          th.classList.remove('active-sort');
+          ind.textContent = '⇅';
+        }
+      }
+    });
+  },
+
+  handleScansPageChange(delta) {
+    this.state.scansPage += delta;
+    if (this.state.scansPage < 1) this.state.scansPage = 1;
+    this.renderScansTable();
+  },
+
+  handleScansPageSizeChange(newSize) {
+    this.state.scansPageSize = parseInt(newSize, 10) || 10;
+    this.state.scansPage = 1;
+    this.renderScansTable();
+  },
+
+  setScansPage(page) {
+    this.state.scansPage = page;
+    this.renderScansTable();
+  },
+
+  renderScansTable() {
+    const tbody = document.getElementById('scans-tbody');
+    if (!tbody) return;
+
+    let items = [...(this.state.scansList || [])];
+    const totalFiltered = items.length;
+
+    // Sorting
+    const field = this.state.scansSortField || 'created_at';
+    const order = this.state.scansSortOrder || 'desc';
+
+    items.sort((a, b) => {
+      let valA, valB;
+      if (field === 'hosts_count') {
+        valA = a.total_hosts !== undefined ? a.total_hosts : (a.hosts_count || 0);
+        valB = b.total_hosts !== undefined ? b.total_hosts : (b.hosts_count || 0);
+      } else if (field === 'total_vulnerabilities') {
+        valA = a.total_findings !== undefined ? a.total_findings : (a.total_vulnerabilities || 0);
+        valB = b.total_findings !== undefined ? b.total_findings : (b.total_vulnerabilities || 0);
+      } else {
+        valA = a[field];
+        valB = b[field];
+      }
+      if (valA === undefined || valA === null) valA = '';
+      if (valB === undefined || valB === null) valB = '';
+      if (typeof valA === 'string') {
+        const cmp = valA.localeCompare(valB);
+        return order === 'asc' ? cmp : -cmp;
+      }
+      return order === 'asc' ? (Number(valA) - Number(valB)) : (Number(valB) - Number(valA));
+    });
+
+    const pageSize = this.state.scansPageSize || 10;
+    const totalPages = Math.ceil(totalFiltered / pageSize) || 1;
+    if (this.state.scansPage > totalPages) this.state.scansPage = totalPages;
+    const currentPage = this.state.scansPage;
+
+    const startIdx = (currentPage - 1) * pageSize;
+    const endIdx = Math.min(startIdx + pageSize, totalFiltered);
+    const paginatedItems = items.slice(startIdx, endIdx);
+
+    // Update pagination controls
+    const pageInfoEl = document.getElementById('scans-page-info');
+    const prevBtn = document.getElementById('scans-prev-btn');
+    const nextBtn = document.getElementById('scans-next-btn');
+    const pillsEl = document.getElementById('scans-page-pills');
+
+    if (pageInfoEl) {
+      pageInfoEl.textContent = totalFiltered === 0 
+        ? 'Mostrando 0 de 0 scans' 
+        : `Mostrando ${(startIdx + 1).toLocaleString()} - ${endIdx.toLocaleString()} de ${totalFiltered.toLocaleString()} scans`;
+    }
+    if (prevBtn) prevBtn.disabled = currentPage <= 1;
+    if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+
+    if (pillsEl) {
+      let pillsHtml = '';
+      const maxPills = 5;
+      let startPage = Math.max(1, currentPage - Math.floor(maxPills / 2));
+      let endPage = Math.min(totalPages, startPage + maxPills - 1);
+      if (endPage - startPage + 1 < maxPills) {
+        startPage = Math.max(1, endPage - maxPills + 1);
+      }
+      for (let p = startPage; p <= endPage; p++) {
+        const active = p === currentPage ? 'active' : '';
+        pillsHtml += `<button type="button" onclick="App.setScansPage(${p})" class="gvul-pagination-btn ${active}">${p}</button>`;
+      }
+      pillsEl.innerHTML = pillsHtml;
+    }
+
+    if (totalFiltered === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-500">Nenhum scan importado para o grupo selecionado.</td></tr>`;
+      return;
+    }
+
+    const isAdmin = this.state.user && this.state.user.role === 'admin';
+
+    tbody.innerHTML = paginatedItems.map(s => `
+      <tr class="hover:bg-slate-800/40 transition">
+        <td>
+          <div class="font-semibold text-slate-200">${s.scan_name}</div>
+          <div class="text-xs text-slate-400 font-mono">${s.filename} (${(s.file_size_bytes / 1024).toFixed(1)} KB)</div>
+        </td>
+        <td>
+          <span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-cyan-300 font-medium border border-slate-700">${s.asset_group_name || '-'}</span>
+        </td>
+        <td class="text-center font-mono font-bold text-slate-200">${s.total_hosts}</td>
+        <td class="text-center font-mono font-bold text-slate-200">${s.total_findings}</td>
+        <td>
+          <div class="flex items-center space-x-1.5 text-xs font-mono font-bold">
+            <span class="text-red-400" title="Críticas">${s.critical_count}C</span>
+            <span class="text-slate-600">•</span>
+            <span class="text-orange-400" title="Altas">${s.high_count}A</span>
+            <span class="text-slate-600">•</span>
+            <span class="text-yellow-400" title="Médias">${s.medium_count}M</span>
+            <span class="text-slate-600">•</span>
+            <span class="text-sky-400" title="Baixas">${s.low_count}B</span>
+          </div>
+        </td>
+        <td class="text-xs text-slate-300 font-mono">${this.formatDateBR(s.scan_date)}</td>
+        <td class="text-xs text-slate-400 font-mono">${s.created_at ? this.formatDateTime(s.created_at) : '-'}</td>
+        <td class="text-right space-x-1">
+          ${isAdmin ? `<button onclick="App.handleDeleteScan(${s.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 cursor-pointer" title="Excluir Scan">Excluir</button>` : `<span class="text-xs text-slate-500 italic">Somente Leitura</span>`}
+        </td>
+      </tr>
+    `).join('');
+
+    this.refreshIcons();
   },
 
   async handleScanUpload(e) {
@@ -3046,44 +3436,44 @@ const App = {
     }
 
     tbody.innerHTML = paginated.map(u => {
-      let roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono">DESCONHECIDO</span>';
+      let roleBadge = '<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono">DESCONHECIDO</span>';
       if (u.role === 'admin') {
-        roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 font-mono">ADMINISTRADOR GERAL</span>';
+        roleBadge = '<span class="px-2 py-0.5 rounded text-xs font-bold bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-indigo-800/60 font-mono">ADMINISTRADOR GERAL</span>';
       } else if (u.role === 'analyst') {
-        roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-50 dark:bg-cyan-950/40 text-teal-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/60 font-mono">ANALISTA DE SEGURANÇA</span>';
+        roleBadge = '<span class="px-2 py-0.5 rounded text-xs font-bold bg-cyan-50 dark:bg-cyan-950/40 text-teal-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/60 font-mono">ANALISTA DE SEGURANÇA</span>';
       } else if (u.role === 'auditor') {
-        roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 font-mono">AUDITOR ISO</span>';
+        roleBadge = '<span class="px-2 py-0.5 rounded text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 font-mono">AUDITOR ISO</span>';
       }
 
       const isLdap = u.auth_type === 'ldap';
       const originBadge = isLdap
         ? `<div class="space-y-0.5">
-             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50 inline-flex items-center space-x-1">
+             <span class="px-2 py-0.5 rounded text-xs font-bold bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/50 inline-flex items-center space-x-1">
                <i data-lucide="network" class="w-3 h-3"></i>
                <span>LDAP (AD)</span>
              </span>
-             <div class="text-[10px] text-purple-600 dark:text-purple-400 font-mono">${u.sam_account_name || u.username}</div>
+             <div class="text-xs text-teal-600 dark:text-teal-400 font-mono">${u.sam_account_name || u.username}</div>
            </div>`
-        : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 inline-flex items-center space-x-1">
+        : `<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 inline-flex items-center space-x-1">
              <i data-lucide="user" class="w-3 h-3"></i>
              <span>Local</span>
            </span>`;
 
       let groupsScopeBadge = '';
       if (u.role === 'admin') {
-        groupsScopeBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">Acesso Total (Todos)</span>';
+        groupsScopeBadge = '<span class="px-2 py-0.5 rounded text-xs font-medium bg-teal-50 dark:bg-teal-950/30 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-teal-800/40">Acesso Total (Todos)</span>';
       } else if (u.allowed_groups && u.allowed_groups.length > 0) {
         const maxShow = 2;
         const shown = u.allowed_groups.slice(0, maxShow);
         const remaining = u.allowed_groups.length - maxShow;
         groupsScopeBadge = `<div class="flex flex-wrap items-center gap-1">` +
-          shown.map(g => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-teal-700 dark:text-teal-300 border border-slate-200 dark:border-slate-700" title="${g.asset_group_name || 'Grupo'} (Acesso concedido + herança)">
+          shown.map(g => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-800 text-teal-700 dark:text-teal-300 border border-slate-200 dark:border-slate-700" title="${g.asset_group_name || 'Grupo'} (Acesso concedido + herança)">
             <span>🏢 ${g.asset_group_name || `Grupo #${g.asset_group_id}`}</span>
           </span>`).join('') +
-          (remaining > 0 ? `<span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium" title="${u.allowed_groups.map(g => g.asset_group_name).join(', ')}">+${remaining}</span>` : '') +
+          (remaining > 0 ? `<span class="px-1.5 py-0.5 rounded text-xs bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium" title="${u.allowed_groups.map(g => g.asset_group_name).join(', ')}">+${remaining}</span>` : '') +
           `</div>`;
       } else {
-        groupsScopeBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">Global (Sem restrições)</span>';
+        groupsScopeBadge = '<span class="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">Global (Sem restrições)</span>';
       }
 
       return `
@@ -3091,7 +3481,7 @@ const App = {
         <td class="font-semibold text-slate-900 dark:text-slate-100 text-xs">${u.username}</td>
         <td>${originBadge}</td>
         <td class="text-slate-700 dark:text-slate-300 text-xs">${u.full_name || '-'}</td>
-        <td class="text-slate-500 dark:text-slate-400 font-mono text-[11px]">${u.email}</td>
+        <td class="text-slate-500 dark:text-slate-400 font-mono text-xs">${u.email}</td>
         <td>${roleBadge}</td>
         <td>${groupsScopeBadge}</td>
         <td class="text-center">
@@ -3167,9 +3557,9 @@ const App = {
 
   getUserPagePillHtml(pageNum, isActive) {
     if (isActive) {
-      return `<button class="w-6 h-6 rounded-md bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-xs cursor-default">${pageNum}</button>`;
+      return `<button class="gvul-pagination-btn active font-mono cursor-default">${pageNum}</button>`;
     }
-    return `<button onclick="App.goToUsersPage(${pageNum})" class="w-6 h-6 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium text-xs flex items-center justify-center transition cursor-pointer">${pageNum}</button>`;
+    return `<button onclick="App.goToUsersPage(${pageNum})" class="gvul-pagination-btn font-mono transition cursor-pointer">${pageNum}</button>`;
   },
 
   async renderUserModalGroups(userAllowedGroups = []) {
@@ -3212,19 +3602,19 @@ const App = {
       if (depth === 1) {
         icon = '🏢';
         badge = hasSubgroups
-          ? `<span class="text-[10px] px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400 font-medium">Nível 1 - Corporativo (${descendants.length} subgrupos subordinados)</span>`
-          : `<span class="text-[10px] px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-400 font-medium">Nível 1 - Grupo Raiz</span>`;
+          ? `<span class="text-xs px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400 font-medium">Nível 1 - Corporativo (${descendants.length} subgrupos subordinados)</span>`
+          : `<span class="text-xs px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-400 font-medium">Nível 1 - Grupo Raiz</span>`;
       } else if (depth === 2) {
         icon = '📍';
         borderIndent = 'margin-left: 1.25rem; border-left: 2px solid #0d9488;';
         badge = hasSubgroups
-          ? `<span class="text-[10px] px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-400 font-medium">📍 Nível 2 - Subgrupo (${descendants.length} subordinados)</span>`
-          : `<span class="text-[10px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-medium">📍 Nível 2 - Subgrupo</span>`;
+          ? `<span class="text-xs px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-400 font-medium">📍 Nível 2 - Subgrupo (${descendants.length} subordinados)</span>`
+          : `<span class="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-medium">📍 Nível 2 - Subgrupo</span>`;
       } else {
         icon = '⤷';
         const leftIndent = Math.min((depth - 1) * 1.25, 3.75);
         borderIndent = `margin-left: ${leftIndent}rem; border-left: 2px solid #d97706;`;
-        badge = `<span class="text-[10px] px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-medium">⤷ Nível ${lvl} - Sub-subgrupo</span>`;
+        badge = `<span class="text-xs px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-medium">⤷ Nível ${lvl} - Sub-subgrupo</span>`;
       }
 
       return `
@@ -3233,7 +3623,7 @@ const App = {
             <input type="checkbox" id="user-grp-check-${g.id}" value="${g.id}" ${isChecked ? 'checked' : ''} class="user-grp-master rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-teal-600 focus:ring-teal-500 cursor-pointer">
             <span class="text-xs font-semibold text-slate-800 dark:text-slate-200 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition flex items-center space-x-1.5">
               <span>${icon} ${g.name}</span>
-              ${g.hierarchy_path ? `<span class="text-[10px] text-slate-400 font-normal">(${g.hierarchy_path})</span>` : (g.parent_name ? `<span class="text-[10px] text-slate-400 font-normal">(${g.parent_name})</span>` : '')}
+              ${g.hierarchy_path ? `<span class="text-xs text-slate-400 font-normal">(${g.hierarchy_path})</span>` : (g.parent_name ? `<span class="text-xs text-slate-400 font-normal">(${g.parent_name})</span>` : '')}
             </span>
           </div>
           ${badge}
@@ -3406,7 +3796,7 @@ const App = {
           <div>
             <strong>Usuário validado no Active Directory:</strong>
             <span class="text-white">${data.full_name || data.sam_account_name}</span> 
-            <span class="text-slate-400 font-mono text-[10px]">(${data.email || 'sem e-mail'})</span>
+            <span class="text-slate-400 font-mono text-xs">(${data.email || 'sem e-mail'})</span>
           </div>
         `;
         this.refreshIcons();
@@ -3594,13 +3984,13 @@ const App = {
           pwdInput.placeholder = '•••••••• (Senha já configurada. Digite para alterar)';
           if (pwdStatus) {
             pwdStatus.textContent = '✓ Senha salva';
-            pwdStatus.className = 'text-[10px] text-emerald-400 font-semibold';
+            pwdStatus.className = 'text-xs text-emerald-400 font-semibold';
           }
         } else {
           pwdInput.placeholder = 'Senha do usuário leitor';
           if (pwdStatus) {
             pwdStatus.textContent = 'Nenhuma senha configurada';
-            pwdStatus.className = 'text-[10px] text-slate-500';
+            pwdStatus.className = 'text-xs text-slate-500';
           }
         }
       }
@@ -4013,7 +4403,7 @@ const App = {
     }
     container.innerHTML = cves.map(cve => `
       <a href="https://nvd.nist.gov/vuln/detail/${cve}" target="_blank" rel="noopener noreferrer" 
-         class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono bg-sky-950/80 text-sky-300 border border-sky-800/70 hover:bg-sky-900 hover:text-white transition shadow-sm" 
+         class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-mono bg-sky-950/80 text-sky-300 border border-sky-800/70 hover:bg-sky-900 hover:text-white transition shadow-sm" 
          title="Abrir detalhes oficiais da ${cve} no NIST NVD">
         <span>${cve}</span>
         <i data-lucide="external-link" class="w-2.5 h-2.5 opacity-70"></i>
@@ -4112,28 +4502,28 @@ const App = {
     const countEl = document.getElementById('treatment-history-count');
     if (!listEl) return;
 
-    listEl.innerHTML = `<div class="text-[11px] text-slate-400 italic text-center py-2">Carregando histórico...</div>`;
+    listEl.innerHTML = `<div class="text-xs text-slate-400 italic text-center py-2">Carregando histórico...</div>`;
 
     try {
       const history = await API.getTreatmentHistory(vulnId);
       if (countEl) countEl.textContent = `${history.length} registro${history.length !== 1 ? 's' : ''}`;
       this._renderTreatmentHistory(history, listEl);
     } catch {
-      listEl.innerHTML = `<div class="text-[11px] text-slate-400 italic text-center py-2">Não foi possível carregar o histórico.</div>`;
+      listEl.innerHTML = `<div class="text-xs text-slate-400 italic text-center py-2">Não foi possível carregar o histórico.</div>`;
     }
   },
 
   _renderTreatmentHistory(history, listEl) {
     if (!history || history.length === 0) {
-      listEl.innerHTML = `<div class="text-[11px] text-slate-400 italic text-center py-3">Nenhuma alteração registrada ainda.</div>`;
+      listEl.innerHTML = `<div class="text-xs text-slate-400 italic text-center py-3">Nenhuma alteração registrada ainda.</div>`;
       return;
     }
 
     const statusLabel = {
       'Open':           { label: 'Em Aberto',    cls: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-400/40' },
       'In_Remediation': { label: 'Em Tratativa', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-400/40' },
-      'In_Action_Plan': { label: 'Em Plano de Ação', cls: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border-indigo-400/40' },
-      'Accepted_Risk':  { label: 'Risco Aceito', cls: 'bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-400/40' },
+      'In_Action_Plan': { label: 'Em Plano de Ação', cls: 'bg-teal-600/15 text-teal-800 dark:text-teal-400 border-teal-400/40' },
+      'Accepted_Risk':  { label: 'Risco Aceito', cls: 'bg-teal-500/15 text-teal-800 dark:text-teal-300 border-teal-400/40' },
       'Remediated':     { label: 'Remediada',    cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-400/40' }
     };
 
@@ -4149,11 +4539,11 @@ const App = {
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
-              <span class="px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase ${s.cls}">${s.label}</span>
-              ${isLatest ? '<span class="text-[9px] font-bold text-sky-600 dark:text-sky-400 uppercase tracking-wider">Atual</span>' : ''}
+              <span class="px-1.5 py-0.5 rounded border text-xs font-bold uppercase ${s.cls}">${s.label}</span>
+              ${isLatest ? '<span class="text-xs font-bold text-sky-600 dark:text-sky-400 uppercase tracking-wider">Atual</span>' : ''}
             </div>
-            <p class="text-slate-700 dark:text-slate-300 text-[11px] leading-snug break-words">${this._escHtml(entry.treatment_notes)}</p>
-            <div class="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+            <p class="text-slate-700 dark:text-slate-300 text-xs leading-snug break-words">${this._escHtml(entry.treatment_notes)}</p>
+            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
               <span class="flex items-center gap-1"><i data-lucide="user" class="w-2.5 h-2.5 inline"></i> <strong class="text-slate-600 dark:text-slate-300">${this._escHtml(entry.changed_by_username)}</strong></span>
               <span>•</span>
               <span class="font-mono">${date}</span>
@@ -4339,7 +4729,7 @@ const App = {
           <td class="py-2.5 px-3 text-center">
             <span class="font-bold font-mono ${agingColor}">${h.aging_days} dias</span>
           </td>
-          <td class="py-2.5 px-3 font-mono text-slate-400 text-[11px]">${firstFoundStr}</td>
+          <td class="py-2.5 px-3 font-mono text-slate-400 text-xs">${firstFoundStr}</td>
         </tr>
       `;
     }).join('');
@@ -4372,7 +4762,7 @@ const App = {
     }
     container.innerHTML = cves.map(cve => `
       <a href="https://nvd.nist.gov/vuln/detail/${cve}" target="_blank" rel="noopener noreferrer" 
-         class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono bg-sky-950/80 text-sky-300 border border-sky-800/70 hover:bg-sky-900 hover:text-white transition shadow-sm" 
+         class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-mono bg-sky-950/80 text-sky-300 border border-sky-800/70 hover:bg-sky-900 hover:text-white transition shadow-sm" 
          title="Abrir detalhes oficiais da ${cve} no NIST NVD">
         <span>${cve}</span>
         <i data-lucide="external-link" class="w-2.5 h-2.5 opacity-70"></i>
@@ -4508,22 +4898,22 @@ const App = {
 
     if (v.active_action_plan_id) {
       cardEl.innerHTML = `
-        <div class="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="p-3.5 rounded-xl bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200 dark:border-indigo-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div class="flex items-start space-x-3">
-            <div class="p-2 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 mt-0.5">
+            <div class="p-2 rounded-lg bg-teal-600/10 text-teal-700 dark:text-teal-400 border border-teal-600/20 mt-0.5">
               <i data-lucide="clipboard-check" class="w-5 h-5"></i>
             </div>
             <div>
-              <div class="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+              <div class="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400 flex items-center gap-1.5">
                 <span>Plano de Ação Ativo (ISO 27001 / ISO 9001)</span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-mono">#${v.active_action_plan_id}</span>
+                <span class="px-1.5 py-0.2 rounded text-xs bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-300 font-mono">#${v.active_action_plan_id}</span>
               </div>
               <div class="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm mt-0.5">${this.escapeHtml(v.active_action_plan_title || 'Plano de Ação')}</div>
-              <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Esta vulnerabilidade está sob governança ativa vinculada a este plano.</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Esta vulnerabilidade está sob governança ativa vinculada a este plano.</div>
             </div>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
-            <button type="button" onclick="App.openPlanFromDetails(${v.active_action_plan_id})" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition shadow-xs">
+            <button type="button" onclick="App.openPlanFromDetails(${v.active_action_plan_id})" class="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-white text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition shadow-xs">
               <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               <span>Acessar Plano</span>
             </button>
@@ -4545,7 +4935,7 @@ const App = {
             <i data-lucide="alert-circle" class="w-4 h-4 text-amber-500 flex-shrink-0"></i>
             <span>Nenhum plano de ação ativo associado a esta ocorrência (Vulnerabilidade Órfã).</span>
           </div>
-          <button type="button" onclick="App.openCreatePlanModalFromVuln()" class="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition flex-shrink-0">
+          <button type="button" onclick="App.openCreatePlanModalFromVuln()" class="px-3 py-1.5 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900 border border-teal-200 dark:border-indigo-800 text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition flex-shrink-0">
             <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
             <span>Criar Plano</span>
           </button>
@@ -4560,22 +4950,22 @@ const App = {
 
     if (host.active_action_plan_id) {
       cardEl.innerHTML = `
-        <div class="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="p-3.5 rounded-xl bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200 dark:border-indigo-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div class="flex items-start space-x-3">
-            <div class="p-2 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 mt-0.5">
+            <div class="p-2 rounded-lg bg-teal-600/10 text-teal-700 dark:text-teal-400 border border-teal-600/20 mt-0.5">
               <i data-lucide="clipboard-check" class="w-5 h-5"></i>
             </div>
             <div>
-              <div class="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+              <div class="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400 flex items-center gap-1.5">
                 <span>Plano de Ação Ativo para o Host</span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-mono">#${host.active_action_plan_id}</span>
+                <span class="px-1.5 py-0.2 rounded text-xs bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-300 font-mono">#${host.active_action_plan_id}</span>
               </div>
               <div class="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm mt-0.5">${this.escapeHtml(host.active_action_plan_title || 'Plano de Ação')}</div>
-              <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Este ativo possui um plano de remediação estruturado em andamento.</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Este ativo possui um plano de remediação estruturado em andamento.</div>
             </div>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
-            <button type="button" onclick="App.openPlanFromDetails(${host.active_action_plan_id})" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition shadow-xs">
+            <button type="button" onclick="App.openPlanFromDetails(${host.active_action_plan_id})" class="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-white text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition shadow-xs">
               <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               <span>Acessar Plano</span>
             </button>
@@ -4589,7 +4979,7 @@ const App = {
             <i data-lucide="info" class="w-4 h-4 text-slate-400 flex-shrink-0"></i>
             <span>Nenhum plano de ação de host vinculado a este ativo.</span>
           </div>
-          <button type="button" onclick="App.openCreatePlanModalFromHost()" class="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition flex-shrink-0">
+          <button type="button" onclick="App.openCreatePlanModalFromHost()" class="px-3 py-1.5 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900 border border-teal-200 dark:border-indigo-800 text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition flex-shrink-0">
             <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
             <span>Criar Plano para Host</span>
           </button>
@@ -4730,54 +5120,165 @@ const App = {
         items = items.filter(item => 
           (item.host_ip && item.host_ip.toLowerCase().includes(searchFilter)) ||
           (item.host_name && item.host_name.toLowerCase().includes(searchFilter)) ||
-          (item.plugin_id && item.plugin_id.toLowerCase().includes(searchFilter)) ||
+          (item.plugin_id && String(item.plugin_id).toLowerCase().includes(searchFilter)) ||
           (item.plugin_name && item.plugin_name.toLowerCase().includes(searchFilter)) ||
           (item.category && item.category.toLowerCase().includes(searchFilter))
         );
       }
 
-      if (items.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-emerald-400 font-medium">Nenhum erro de conexão, ICMP ou autenticação encontrado nos scans deste grupo. Todos os ativos foram escaneados com sucesso!</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = items.map(item => `
-        <tr class="hover:bg-slate-800/40 transition">
-          <td class="font-mono text-xs text-slate-400 font-bold">${item.plugin_id}</td>
-          <td>
-            <div class="font-bold text-sky-400 font-mono text-xs">${item.host_ip}</div>
-            <div class="text-[11px] text-slate-400">${item.host_name || 'Sem hostname'}</div>
-            <div class="text-[10px] text-slate-500">${item.asset_group_name || ''}</div>
-          </td>
-          <td>
-            <span class="px-2 py-0.5 rounded text-xs font-bold ${this.getDiagnosticCategoryBadge(item.category)}">${item.category}</span>
-          </td>
-          <td>
-            <div class="font-semibold text-slate-200 text-xs">${item.error_title}</div>
-            <div class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">${item.error_description}</div>
-          </td>
-          <td>
-            <div class="p-2 rounded bg-amber-950/30 border border-amber-800/40 text-[11px] text-amber-200/90 leading-tight">
-              <span class="font-bold text-amber-300">Ação para Novo Scan:</span> ${item.recommended_action}
-            </div>
-          </td>
-          <td class="text-right">
-            <button onclick="App.openVulnDetailsModal(${item.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer">Ver Output</button>
-          </td>
-        </tr>
-      `).join('');
-
-      this.refreshIcons();
+      this.state.diagItems = items;
+      this.state.diagPage = 1;
+      this.updateDiagSortUI();
+      this.renderDiagTable();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-rose-400">Erro ao carregar diagnósticos: ${e.message}</td></tr>`;
     }
+  },
+
+  toggleDiagSort(field) {
+    if (this.state.diagSortField === field) {
+      this.state.diagSortOrder = this.state.diagSortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.state.diagSortField = field;
+      this.state.diagSortOrder = 'asc';
+    }
+    this.updateDiagSortUI();
+    this.renderDiagTable();
+  },
+
+  updateDiagSortUI() {
+    ['plugin_id', 'host_ip', 'category', 'error_title'].forEach(f => {
+      const th = document.getElementById(`th-diag-${f}`);
+      const ind = document.getElementById(`th-diag-sort-${f}`);
+      if (th && ind) {
+        if (this.state.diagSortField === f) {
+          th.classList.add('active-sort');
+          ind.textContent = this.state.diagSortOrder === 'asc' ? '▲' : '▼';
+        } else {
+          th.classList.remove('active-sort');
+          ind.textContent = '⇅';
+        }
+      }
+    });
+  },
+
+  handleDiagPageChange(delta) {
+    this.state.diagPage += delta;
+    if (this.state.diagPage < 1) this.state.diagPage = 1;
+    this.renderDiagTable();
+  },
+
+  handleDiagPageSizeChange(newSize) {
+    this.state.diagPageSize = parseInt(newSize, 10) || 10;
+    this.state.diagPage = 1;
+    this.renderDiagTable();
+  },
+
+  setDiagPage(page) {
+    this.state.diagPage = page;
+    this.renderDiagTable();
+  },
+
+  renderDiagTable() {
+    const tbody = document.getElementById('diagnostics-tbody');
+    if (!tbody) return;
+
+    let items = [...(this.state.diagItems || [])];
+    const totalFiltered = items.length;
+
+    // Sorting
+    const field = this.state.diagSortField || 'host_ip';
+    const order = this.state.diagSortOrder || 'asc';
+
+    items.sort((a, b) => {
+      let valA = a[field];
+      let valB = b[field];
+      if (valA === undefined || valA === null) valA = '';
+      if (valB === undefined || valB === null) valB = '';
+      if (typeof valA === 'string') {
+        const cmp = valA.localeCompare(valB);
+        return order === 'asc' ? cmp : -cmp;
+      }
+      return order === 'asc' ? (Number(valA) - Number(valB)) : (Number(valB) - Number(valA));
+    });
+
+    const pageSize = this.state.diagPageSize || 10;
+    const totalPages = Math.ceil(totalFiltered / pageSize) || 1;
+    if (this.state.diagPage > totalPages) this.state.diagPage = totalPages;
+    const currentPage = this.state.diagPage;
+
+    const startIdx = (currentPage - 1) * pageSize;
+    const endIdx = Math.min(startIdx + pageSize, totalFiltered);
+    const paginatedItems = items.slice(startIdx, endIdx);
+
+    // Update pagination controls
+    const pageInfoEl = document.getElementById('diag-page-info');
+    const prevBtn = document.getElementById('diag-prev-btn');
+    const nextBtn = document.getElementById('diag-next-btn');
+    const pillsEl = document.getElementById('diag-page-pills');
+
+    if (pageInfoEl) {
+      pageInfoEl.textContent = totalFiltered === 0 
+        ? 'Mostrando 0 de 0 diagnósticos' 
+        : `Mostrando ${(startIdx + 1).toLocaleString()} - ${endIdx.toLocaleString()} de ${totalFiltered.toLocaleString()} diagnósticos`;
+    }
+    if (prevBtn) prevBtn.disabled = currentPage <= 1;
+    if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+
+    if (pillsEl) {
+      let pillsHtml = '';
+      const maxPills = 5;
+      let startPage = Math.max(1, currentPage - Math.floor(maxPills / 2));
+      let endPage = Math.min(totalPages, startPage + maxPills - 1);
+      if (endPage - startPage + 1 < maxPills) {
+        startPage = Math.max(1, endPage - maxPills + 1);
+      }
+      for (let p = startPage; p <= endPage; p++) {
+        const active = p === currentPage ? 'active' : '';
+        pillsHtml += `<button type="button" onclick="App.setDiagPage(${p})" class="gvul-pagination-btn ${active}">${p}</button>`;
+      }
+      pillsEl.innerHTML = pillsHtml;
+    }
+
+    if (totalFiltered === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-emerald-400 font-medium">Nenhum erro de conexão, ICMP ou autenticação encontrado nos scans deste grupo. Todos os ativos foram escaneados com sucesso!</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = paginatedItems.map(item => `
+      <tr class="hover:bg-slate-800/40 transition">
+        <td class="font-mono text-xs text-slate-400 font-bold">${item.plugin_id}</td>
+        <td>
+          <div class="font-bold text-sky-400 font-mono text-xs">${item.host_ip}</div>
+          <div class="text-xs text-slate-400">${item.host_name || 'Sem hostname'}</div>
+          <div class="text-xs text-slate-500">${item.asset_group_name || ''}</div>
+        </td>
+        <td>
+          <span class="px-2 py-0.5 rounded text-xs font-bold ${this.getDiagnosticCategoryBadge(item.category)}">${item.category}</span>
+        </td>
+        <td>
+          <div class="font-semibold text-slate-200 text-xs">${item.error_title}</div>
+          <div class="text-xs text-slate-400 mt-0.5 line-clamp-2">${item.error_description}</div>
+        </td>
+        <td>
+          <div class="p-2 rounded bg-amber-950/30 border border-amber-800/40 text-xs text-amber-200/90 leading-tight">
+            <span class="font-bold text-amber-300">Ação para Novo Scan:</span> ${item.recommended_action}
+          </div>
+        </td>
+        <td class="text-right">
+          <button onclick="App.openVulnDetailsModal(${item.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer">Ver Output</button>
+        </td>
+      </tr>
+    `).join('');
+
+    this.refreshIcons();
   },
 
   getDiagnosticCategoryBadge(category) {
     if (!category) return 'bg-slate-800 text-slate-300';
     if (category.includes('Autenticação')) return 'bg-rose-500/20 text-rose-300 border border-rose-500/40';
     if (category.includes('Rede') || category.includes('ICMP') || category.includes('Conexão')) return 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40';
-    if (category.includes('Permissão') || category.includes('Escalação')) return 'bg-purple-500/20 text-purple-300 border border-purple-500/40';
+    if (category.includes('Permissão') || category.includes('Escalação')) return 'bg-amber-500/20 text-amber-300 border border-amber-500/40';
     return 'bg-sky-500/20 text-sky-300 border border-sky-500/40';
   },
 
@@ -4967,7 +5468,7 @@ const App = {
     }
 
     if (uniqueTokens.length === 0) {
-      tagsContainer.innerHTML = '<span class="text-slate-400 italic text-[11px]">Nenhum ID configurado para expurgo no momento.</span>';
+      tagsContainer.innerHTML = '<span class="text-slate-400 italic text-xs">Nenhum ID configurado para expurgo no momento.</span>';
       return;
     }
 
@@ -4975,7 +5476,7 @@ const App = {
       const isKnownScan = tok === '19506';
       const badgeStyle = isKnownScan
         ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/30'
-        : 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
+        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700';
       return `
         <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${badgeStyle} shadow-xs">
           <span>${this.escapeHtml(tok)}</span>
@@ -5236,7 +5737,7 @@ const App = {
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="9" class="text-center py-10 text-slate-400">
         <div class="inline-flex items-center space-x-2">
-          <i data-lucide="loader-2" class="w-5 h-5 animate-spin text-indigo-500"></i>
+          <i data-lucide="loader-2" class="w-5 h-5 animate-spin text-teal-600"></i>
           <span>Carregando planos de ação...</span>
         </div>
       </td></tr>`;
@@ -5326,14 +5827,14 @@ const App = {
     const pagination = document.getElementById('action-plans-pagination');
 
     if (viewMode === 'kanban') {
-      if (btnKanban) btnKanban.className = 'px-3 py-1.5 rounded-lg font-semibold flex items-center space-x-1.5 transition cursor-pointer bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-xs';
+      if (btnKanban) btnKanban.className = 'px-3 py-1.5 rounded-lg font-semibold flex items-center space-x-1.5 transition cursor-pointer bg-white dark:bg-slate-700 text-teal-700 dark:text-white shadow-xs';
       if (btnList) btnList.className = 'px-3 py-1.5 rounded-lg font-medium flex items-center space-x-1.5 transition cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white';
       if (containerList) containerList.classList.add('hidden');
       if (containerKanban) containerKanban.classList.remove('hidden');
       if (pagination) pagination.classList.add('hidden');
       this.renderActionPlansKanban();
     } else {
-      if (btnList) btnList.className = 'px-3 py-1.5 rounded-lg font-semibold flex items-center space-x-1.5 transition cursor-pointer bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-xs';
+      if (btnList) btnList.className = 'px-3 py-1.5 rounded-lg font-semibold flex items-center space-x-1.5 transition cursor-pointer bg-white dark:bg-slate-700 text-teal-700 dark:text-white shadow-xs';
       if (btnKanban) btnKanban.className = 'px-3 py-1.5 rounded-lg font-medium flex items-center space-x-1.5 transition cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white';
       if (containerKanban) containerKanban.classList.add('hidden');
       if (containerList) containerList.classList.remove('hidden');
@@ -5379,32 +5880,32 @@ const App = {
 
   getActionPlanPriorityBadge(priority) {
     const p = String(priority || '').toUpperCase();
-    if (p === 'CRITICAL') return '<span class="badge-critical px-2 py-0.5 rounded text-[11px] font-bold">Crítica</span>';
-    if (p === 'HIGH') return '<span class="badge-high px-2 py-0.5 rounded text-[11px] font-bold">Alta</span>';
-    if (p === 'MEDIUM') return '<span class="badge-medium px-2 py-0.5 rounded text-[11px] font-bold">Média</span>';
-    if (p === 'LOW') return '<span class="badge-low px-2 py-0.5 rounded text-[11px] font-bold">Baixa</span>';
-    return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">${this.escapeHtml(priority)}</span>`;
+    if (p === 'CRITICAL') return '<span class="badge-critical px-2 py-0.5 rounded text-xs font-bold">Crítica</span>';
+    if (p === 'HIGH') return '<span class="badge-high px-2 py-0.5 rounded text-xs font-bold">Alta</span>';
+    if (p === 'MEDIUM') return '<span class="badge-medium px-2 py-0.5 rounded text-xs font-bold">Média</span>';
+    if (p === 'LOW') return '<span class="badge-low px-2 py-0.5 rounded text-xs font-bold">Baixa</span>';
+    return `<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">${this.escapeHtml(priority)}</span>`;
   },
 
   getActionPlanStatusBadge(status) {
     const s = String(status || '').toUpperCase();
-    if (s === 'PLANNED') return '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">Planejado</span>';
-    if (s === 'IN_PROGRESS') return '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">Em Andamento</span>';
-    if (s === 'BLOCKED') return '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Bloqueado</span>';
-    if (s === 'COMPLETED') return '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">Concluído</span>';
-    if (s === 'DRAFT') return '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">Rascunho</span>';
-    if (s === 'CANCELLED') return '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">Cancelado</span>';
-    return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">${this.escapeHtml(status)}</span>`;
+    if (s === 'PLANNED') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">Planejado</span>';
+    if (s === 'IN_PROGRESS') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">Em Andamento</span>';
+    if (s === 'BLOCKED') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Bloqueado</span>';
+    if (s === 'COMPLETED') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">Concluído</span>';
+    if (s === 'DRAFT') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">Rascunho</span>';
+    if (s === 'CANCELLED') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">Cancelado</span>';
+    return `<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">${this.escapeHtml(status)}</span>`;
   },
 
   getActionTaskStatusBadge(status) {
     const s = String(status || '').toUpperCase();
-    if (s === 'TODO') return '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">A Fazer</span>';
-    if (s === 'DOING') return '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">Em Execução</span>';
-    if (s === 'REVIEW') return '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">Revisão</span>';
-    if (s === 'DONE') return '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">Concluído</span>';
-    if (s === 'BLOCKED') return '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Bloqueado</span>';
-    return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">${this.escapeHtml(status)}</span>`;
+    if (s === 'TODO') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">A Fazer</span>';
+    if (s === 'DOING') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">Em Execução</span>';
+    if (s === 'REVIEW') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Revisão</span>';
+    if (s === 'DONE') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">Concluído</span>';
+    if (s === 'BLOCKED') return '<span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Bloqueado</span>';
+    return `<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">${this.escapeHtml(status)}</span>`;
   },
 
   getActionPlanScopeBadge(scopeType, targetInfo, groupName) {
@@ -5423,19 +5924,19 @@ const App = {
     } else if (sc === 'GROUP') {
       label = 'Grupo de Ativos';
       icon = 'folder-tree';
-      color = 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800';
+      color = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700';
     } else if (sc === 'MATRIX_NN') {
       label = 'Matriz N:N';
       icon = 'grid';
       color = 'bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300 border border-teal-200 dark:border-teal-800';
     }
     return `<div class="space-y-1">
-      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${color}">
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-bold uppercase ${color}">
         <i data-lucide="${icon}" class="w-3 h-3"></i>
         <span>${label}</span>
       </span>
-      ${targetInfo ? `<div class="text-[11px] font-mono text-slate-700 dark:text-slate-200 truncate max-w-[200px]" title="${this.escapeHtml(targetInfo)}">${this.escapeHtml(targetInfo)}</div>` : ''}
-      ${groupName ? `<div class="text-[10px] text-teal-700 dark:text-teal-400 font-medium truncate max-w-[200px]" title="Grupo: ${this.escapeHtml(groupName)}"><i data-lucide="folder-tree" class="w-3 h-3 inline mr-0.5 text-teal-600"></i>${this.escapeHtml(groupName)}</div>` : ''}
+      ${targetInfo ? `<div class="text-xs font-mono text-slate-700 dark:text-slate-200 truncate max-w-[200px]" title="${this.escapeHtml(targetInfo)}">${this.escapeHtml(targetInfo)}</div>` : ''}
+      ${groupName ? `<div class="text-xs text-teal-700 dark:text-teal-400 font-medium truncate max-w-[200px]" title="Grupo: ${this.escapeHtml(groupName)}"><i data-lucide="folder-tree" class="w-3 h-3 inline mr-0.5 text-teal-600"></i>${this.escapeHtml(groupName)}</div>` : ''}
     </div>`;
   },
 
@@ -5486,24 +5987,24 @@ const App = {
 
       const dueStr = p.due_date ? new Date(p.due_date).toLocaleDateString('pt-BR') : '-';
       const overdueHtml = p.is_overdue
-        ? '<span class="inline-block ml-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-500 text-white animate-pulse">Atrasado</span>'
+        ? '<span class="inline-block ml-1 px-1.5 py-0.2 rounded text-xs font-bold bg-rose-500 text-white animate-pulse">Atrasado</span>'
         : '';
 
       const pct = p.progress_percent || 0;
-      const barColor = pct === 100 ? 'bg-emerald-500' : (pct > 0 ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700');
+      const barColor = pct === 100 ? 'bg-emerald-500' : (pct > 0 ? 'bg-teal-700' : 'bg-slate-300 dark:bg-slate-700');
 
       const tagsHtml = (p.tags && p.tags.length > 0)
-        ? `<div class="flex flex-wrap gap-1 mt-1">${p.tags.map(t => `<span class="px-1.5 py-0.2 rounded text-[10px] font-semibold" style="background-color: ${(t.color || '#6366f1')}15; color: ${t.color || '#6366f1'}; border: 1px solid ${(t.color || '#6366f1')}33;">${this.escapeHtml(t.name || t)}</span>`).join('')}</div>`
+        ? `<div class="flex flex-wrap gap-1 mt-1">${p.tags.map(t => `<span class="px-1.5 py-0.2 rounded text-xs font-semibold" style="background-color: ${(t.color || '#0F766E')}15; color: ${t.color || '#0F766E'}; border: 1px solid ${(t.color || '#0F766E')}33;">${this.escapeHtml(t.name || t)}</span>`).join('')}</div>`
         : '';
 
       return `
         <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
           <td class="text-center font-mono font-bold text-slate-500 dark:text-slate-400">#${p.id}</td>
           <td class="max-w-xs">
-            <div class="font-bold text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer transition line-clamp-1" onclick="App.openActionPlanDetail(${p.id})" title="${this.escapeHtml(p.title)}">
+            <div class="font-bold text-slate-900 dark:text-slate-100 hover:text-teal-700 dark:hover:text-teal-400 cursor-pointer transition line-clamp-1" onclick="App.openActionPlanDetail(${p.id})" title="${this.escapeHtml(p.title)}">
               ${this.escapeHtml(p.title)}
             </div>
-            ${p.description ? `<div class="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">${this.escapeHtml(p.description)}</div>` : ''}
+            ${p.description ? `<div class="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">${this.escapeHtml(p.description)}</div>` : ''}
             ${tagsHtml}
           </td>
           <td>
@@ -5517,9 +6018,9 @@ const App = {
           </td>
           <td>
             <div class="space-y-1">
-              <div class="flex items-center justify-between text-[11px]">
+              <div class="flex items-center justify-between text-xs">
                 <span class="font-mono font-bold text-slate-700 dark:text-slate-300">${pct.toFixed(0)}%</span>
-                <span class="text-slate-400 text-[10px]">${p.completed_tasks}/${p.total_tasks} etapas</span>
+                <span class="text-slate-400 text-xs">${p.completed_tasks}/${p.total_tasks} etapas</span>
               </div>
               <div class="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
                 <div class="${barColor} h-full rounded-full transition-all duration-300" style="width: ${pct}%"></div>
@@ -5531,7 +6032,7 @@ const App = {
           </td>
           <td class="text-slate-700 dark:text-slate-300 whitespace-nowrap">
             <div class="flex items-center space-x-1.5">
-              <div class="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-[10px] font-bold">
+              <div class="w-5 h-5 rounded-full bg-teal-100 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 flex items-center justify-center text-xs font-bold">
                 ${this.escapeHtml((p.owner_user_name || 'U').charAt(0).toUpperCase())}
               </div>
               <span class="truncate max-w-[120px]" title="${this.escapeHtml(p.owner_user_name || '-')}">${this.escapeHtml(p.owner_user_name || '-')}</span>
@@ -5539,7 +6040,7 @@ const App = {
           </td>
           <td class="text-right whitespace-nowrap">
             <div class="flex items-center justify-end space-x-1">
-              <button onclick="App.openActionPlanDetail(${p.id})" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center space-x-1 cursor-pointer transition shadow-xs" title="Gerenciar Etapas e Detalhes">
+              <button onclick="App.openActionPlanDetail(${p.id})" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/50 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-indigo-800 flex items-center space-x-1 cursor-pointer transition shadow-xs" title="Gerenciar Etapas e Detalhes">
                 <i data-lucide="list-todo" class="w-3.5 h-3.5"></i>
                 <span>Etapas</span>
               </button>
@@ -5621,9 +6122,9 @@ const App = {
 
   getActionPlanPagePillHtml(pageNum, isActive) {
     if (isActive) {
-      return `<button type="button" class="w-7 h-7 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-xs select-none cursor-default">${pageNum}</button>`;
+      return `<button type="button" class="gvul-pagination-btn active font-mono select-none cursor-default">${pageNum}</button>`;
     }
-    return `<button type="button" onclick="App.setActionPlansPage(${pageNum})" class="w-7 h-7 rounded-lg text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition select-none cursor-pointer">${pageNum}</button>`;
+    return `<button type="button" onclick="App.setActionPlansPage(${pageNum})" class="gvul-pagination-btn font-mono transition select-none cursor-pointer">${pageNum}</button>`;
   },
 
   setActionPlansPage(page) {
@@ -5679,37 +6180,37 @@ const App = {
     const renderCard = (p) => {
       const dueStr = p.due_date ? new Date(p.due_date).toLocaleDateString('pt-BR') : '-';
       const pct = p.progress_percent || 0;
-      const barColor = pct === 100 ? 'bg-emerald-500' : 'bg-indigo-600';
+      const barColor = pct === 100 ? 'bg-emerald-500' : 'bg-teal-700';
       const scopeDesc = p.scope_type === 'MATRIX_NN'
         ? `${(p.scope_host_ips || []).length} Hosts × ${(p.scope_plugin_ids || []).length} Plugins`
         : (p.target_host_ip || p.target_plugin_id || p.asset_group_name || 'Geral');
 
       return `
-        <div onclick="App.openActionPlanDetail(${p.id})" class="p-3.5 rounded-xl bg-white dark:bg-[#131B2E] border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-800/80 transition cursor-pointer space-y-2.5">
+        <div onclick="App.openActionPlanDetail(${p.id})" class="p-3.5 rounded-xl bg-white dark:bg-[#131B2E] border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:border-teal-300 dark:hover:border-indigo-800/80 transition cursor-pointer space-y-2.5">
           <div class="flex items-center justify-between gap-1.5">
             ${this.getActionPlanPriorityBadge(p.priority)}
-            <span class="font-mono text-[10px] text-slate-400">#${p.id}</span>
+            <span class="font-mono text-xs text-slate-400">#${p.id}</span>
           </div>
           <h5 class="font-bold text-xs text-slate-800 dark:text-slate-100 line-clamp-2 leading-snug">
             ${this.escapeHtml(p.title)}
           </h5>
-          <div class="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+          <div class="text-xs text-slate-500 dark:text-slate-400 truncate">
             <i data-lucide="tag" class="w-3 h-3 inline mr-1 text-slate-400"></i>
             <span>${this.escapeHtml(p.scope_type)}: ${this.escapeHtml(scopeDesc)}</span>
           </div>
           ${(p.tags && p.tags.length > 0) ? `
             <div class="flex flex-wrap gap-1">
-              ${p.tags.map(t => `<span class="px-1.5 py-0.2 rounded text-[9px] font-semibold" style="background-color: ${(t.color || '#6366f1')}15; color: ${t.color || '#6366f1'}; border: 1px solid ${(t.color || '#6366f1')}33;">${this.escapeHtml(t.name || t)}</span>`).join('')}
+              ${p.tags.map(t => `<span class="px-1.5 py-0.2 rounded text-xs font-semibold" style="background-color: ${(t.color || '#0F766E')}15; color: ${t.color || '#0F766E'}; border: 1px solid ${(t.color || '#0F766E')}33;">${this.escapeHtml(t.name || t)}</span>`).join('')}
             </div>
           ` : ''}
           ${p.asset_group_name ? `
-            <div class="text-[10px] text-teal-600 dark:text-teal-400 font-medium truncate" title="Grupo: ${this.escapeHtml(p.asset_group_name)}">
+            <div class="text-xs text-teal-600 dark:text-teal-400 font-medium truncate" title="Grupo: ${this.escapeHtml(p.asset_group_name)}">
               <i data-lucide="folder-tree" class="w-3 h-3 inline mr-0.5"></i>
               ${this.escapeHtml(p.asset_group_name)}
             </div>
           ` : ''}
           <div class="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800/60">
-            <div class="flex items-center justify-between text-[10px]">
+            <div class="flex items-center justify-between text-xs">
               <span class="text-slate-400">${p.completed_tasks}/${p.total_tasks} etapas</span>
               <span class="font-bold font-mono text-slate-700 dark:text-slate-300">${pct.toFixed(0)}%</span>
             </div>
@@ -5717,7 +6218,7 @@ const App = {
               <div class="${barColor} h-full rounded-full" style="width: ${pct}%"></div>
             </div>
           </div>
-          <div class="flex items-center justify-between text-[10px] pt-1 text-slate-400">
+          <div class="flex items-center justify-between text-xs pt-1 text-slate-400">
             <span class="${p.is_overdue ? 'text-rose-500 font-bold' : ''}">
               <i data-lucide="calendar" class="w-3 h-3 inline mr-0.5"></i>
               ${dueStr} ${p.is_overdue ? '(Atrasado)' : ''}
@@ -5788,20 +6289,20 @@ const App = {
           onclick="App.selectPlanOwner(${u.id})"
           class="flex items-center justify-between px-3 py-2 cursor-pointer transition select-none ${
             isSelected
-              ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold'
+              ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 font-semibold'
               : 'hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200'
           }"
         >
           <div class="flex items-center space-x-2.5 min-w-0">
-            <div class="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-[10px] font-bold shrink-0">
+            <div class="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 flex items-center justify-center text-xs font-bold shrink-0">
               ${initial}
             </div>
             <div class="min-w-0">
               <div class="truncate text-xs">${name}</div>
-              <div class="text-[10px] text-slate-400">@${uname} • <span class="capitalize">${role}</span></div>
+              <div class="text-xs text-slate-400">@${uname} • <span class="capitalize">${role}</span></div>
             </div>
           </div>
-          ${isSelected ? '<i data-lucide="check" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0"></i>' : ''}
+          ${isSelected ? '<i data-lucide="check" class="w-3.5 h-3.5 text-teal-700 dark:text-teal-400 shrink-0"></i>' : ''}
         </div>
       `;
     }).join('');
@@ -5996,7 +6497,7 @@ const App = {
       if (suggEl) {
         if (tags && tags.length > 0) {
           suggEl.innerHTML = tags.map(t => `
-            <button type="button" onclick="App.appendPlanTag('${this.escapeHtml(t.name)}')" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900 cursor-pointer transition">
+            <button type="button" onclick="App.appendPlanTag('${this.escapeHtml(t.name)}')" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-indigo-800 hover:bg-teal-100 dark:hover:bg-teal-900 cursor-pointer transition">
               + ${this.escapeHtml(t.name)}
             </button>
           `).join('');
@@ -6102,8 +6603,8 @@ const App = {
       if (!tab || !badge) continue;
 
       if (i === step) {
-        tab.className = 'flex items-center gap-2.5 p-2.5 rounded-xl transition text-left cursor-pointer bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-700 shadow-xs';
-        badge.className = 'w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs bg-indigo-600 text-white shrink-0';
+        tab.className = 'flex items-center gap-2.5 p-2.5 rounded-xl transition text-left cursor-pointer bg-teal-50 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 shadow-xs';
+        badge.className = 'w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs bg-teal-700 text-white shrink-0';
       } else if (i < step) {
         tab.className = 'flex items-center gap-2.5 p-2.5 rounded-xl transition text-left cursor-pointer bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60';
         badge.className = 'w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs bg-emerald-600 text-white shrink-0';
@@ -6157,7 +6658,7 @@ const App = {
     const listEl = document.getElementById('plan-wizard-candidate-hosts');
     if (!listEl) return;
 
-    listEl.innerHTML = `<div class="text-center py-2 text-[11px] text-slate-400"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin inline mr-1 text-indigo-500"></i>Buscando hosts...</div>`;
+    listEl.innerHTML = `<div class="text-center py-2 text-xs text-slate-400"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin inline mr-1 text-teal-600"></i>Buscando hosts...</div>`;
     this.refreshIcons();
 
     try {
@@ -6168,7 +6669,7 @@ const App = {
       this.state.planWizardCandidateHosts = hosts || [];
       this.renderWizardCandidateHosts();
     } catch (err) {
-      listEl.innerHTML = `<div class="text-center py-2 text-[11px] text-rose-500">Erro ao listar hosts: ${this.escapeHtml(err.message)}</div>`;
+      listEl.innerHTML = `<div class="text-center py-2 text-xs text-rose-500">Erro ao listar hosts: ${this.escapeHtml(err.message)}</div>`;
     }
   },
 
@@ -6178,7 +6679,7 @@ const App = {
 
     const hosts = this.state.planWizardCandidateHosts || [];
     if (hosts.length === 0) {
-      listEl.innerHTML = `<div class="text-center py-3 text-[11px] text-slate-400">Nenhum host com apontamentos ativos encontrado para este filtro.</div>`;
+      listEl.innerHTML = `<div class="text-center py-3 text-xs text-slate-400">Nenhum host com apontamentos ativos encontrado para este filtro.</div>`;
       return;
     }
 
@@ -6188,9 +6689,9 @@ const App = {
       const isAdded = selectedIps.has(h.ip);
       const ipEscaped = this.escapeHtml(h.ip);
       return `
-        <div class="flex items-center justify-between p-2 rounded-lg hover:bg-white dark:hover:bg-slate-800/80 transition border ${isAdded ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20' : 'border-transparent hover:border-slate-200 dark:hover:border-slate-700'} text-[11px]">
+        <div class="flex items-center justify-between p-2 rounded-lg hover:bg-white dark:hover:bg-slate-800/80 transition border ${isAdded ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20' : 'border-transparent hover:border-slate-200 dark:hover:border-slate-700'} text-xs">
           <div class="flex items-center gap-2 min-w-0">
-            <span class="w-6 h-6 rounded-md flex items-center justify-center bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 shrink-0">
+            <span class="w-6 h-6 rounded-md flex items-center justify-center bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-400 shrink-0">
               <i data-lucide="server" class="w-3.5 h-3.5"></i>
             </span>
             <div class="min-w-0">
@@ -6198,11 +6699,11 @@ const App = {
                 <span>${ipEscaped}</span>
                 ${h.hostname ? `<span class="text-slate-400 font-normal truncate">(${this.escapeHtml(h.hostname)})</span>` : ''}
               </div>
-              <div class="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 flex-wrap">
+              <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
                 <span>${this.escapeHtml(h.asset_group_name || 'Global')}</span>
-                ${h.os ? `<span class="px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[140px]" title="SO: ${this.escapeHtml(h.os)}"><i data-lucide="cpu" class="w-2.5 h-2.5 inline mr-0.5"></i>${this.escapeHtml(h.os)}</span>` : ''}
+                ${h.os ? `<span class="px-1.5 py-0.2 rounded text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[140px]" title="SO: ${this.escapeHtml(h.os)}"><i data-lucide="cpu" class="w-2.5 h-2.5 inline mr-0.5"></i>${this.escapeHtml(h.os)}</span>` : ''}
                 <span>•</span>
-                <span class="font-semibold text-indigo-600 dark:text-indigo-400">${h.vuln_count} vulns</span>
+                <span class="font-semibold text-teal-700 dark:text-teal-400">${h.vuln_count} vulns</span>
                 ${h.critical_count > 0 ? `<span class="badge-critical px-1 rounded font-bold">${h.critical_count} Críticas</span>` : ''}
                 ${h.high_count > 0 ? `<span class="badge-high px-1 rounded font-bold">${h.high_count} Altas</span>` : ''}
               </div>
@@ -6212,7 +6713,7 @@ const App = {
           <button type="button" onclick="App.toggleWizardHostItem('${ipEscaped}')" class="px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition shrink-0 ${
             isAdded 
               ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-              : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs'
+              : 'bg-teal-700 hover:bg-teal-600 text-white shadow-xs'
           }">
             ${isAdded ? '✓ Adicionado' : '+ Adicionar'}
           </button>
@@ -6286,18 +6787,18 @@ const App = {
 
     if (hosts.length === 0) {
       listEl.innerHTML = `
-        <div class="text-center py-4 text-slate-400 text-[11px] space-y-1">
+        <div class="text-center py-4 text-slate-400 text-xs space-y-1">
           <p class="font-medium text-slate-500 dark:text-slate-400">Nenhum host específico selecionado.</p>
-          <p class="text-[10px] text-slate-400">Ao avançar sem hosts, o plano terá escopo por Vulnerabilidade (Plugin) e abrangerá todos os hosts do grupo.</p>
+          <p class="text-xs text-slate-400">Ao avançar sem hosts, o plano terá escopo por Vulnerabilidade (Plugin) e abrangerá todos os hosts do grupo.</p>
         </div>
       `;
       return;
     }
 
     listEl.innerHTML = hosts.map(h => `
-      <div class="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 shadow-2xs text-[11px]">
+      <div class="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 shadow-2xs text-xs">
         <div class="flex items-center gap-2 min-w-0">
-          <span class="w-6 h-6 rounded-md flex items-center justify-center bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 shrink-0">
+          <span class="w-6 h-6 rounded-md flex items-center justify-center bg-teal-50 dark:bg-teal-950/80 text-teal-700 dark:text-teal-400 shrink-0">
             <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
           </span>
           <div class="min-w-0">
@@ -6305,15 +6806,15 @@ const App = {
               <span>${this.escapeHtml(h.ip)}</span>
               ${h.hostname ? `<span class="text-slate-400 font-normal truncate">(${this.escapeHtml(h.hostname)})</span>` : ''}
             </div>
-            <div class="text-[10px] text-slate-400 flex items-center gap-1.5">
+            <div class="text-xs text-slate-400 flex items-center gap-1.5">
               <span>${this.escapeHtml(h.asset_group_name || 'Global')}</span>
               <span>•</span>
-              <span class="text-indigo-600 dark:text-indigo-400 font-medium">${h.vuln_count || 0} vulnerabilidades ativas</span>
+              <span class="text-teal-700 dark:text-teal-400 font-medium">${h.vuln_count || 0} vulnerabilidades ativas</span>
             </div>
           </div>
         </div>
 
-        <button type="button" onclick="App.removeWizardHost('${this.escapeHtml(h.ip)}')" class="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer transition shrink-0" title="Remover host do plano">
+        <button type="button" onclick="App.removeWizardHost('${this.escapeHtml(h.ip)}')" class="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition shrink-0" title="Remover host do plano">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
@@ -6343,7 +6844,7 @@ const App = {
         if (pickerSection) pickerSection.classList.add('hidden');
         if (radioAll) radioAll.checked = true;
         if (lblAll && lblCustom) {
-          lblAll.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 cursor-pointer transition';
+          lblAll.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-teal-600 bg-teal-50/50 dark:bg-teal-950/40 cursor-pointer transition';
           lblCustom.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 cursor-pointer transition';
         }
       } else {
@@ -6351,7 +6852,7 @@ const App = {
         if (pickerLabel) pickerLabel.textContent = 'Selecione as Vulnerabilidades Específicas';
         if (radioCustom) radioCustom.checked = true;
         if (lblAll && lblCustom) {
-          lblCustom.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 cursor-pointer transition';
+          lblCustom.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-teal-600 bg-teal-50/50 dark:bg-teal-950/40 cursor-pointer transition';
           lblAll.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 cursor-pointer transition';
         }
         this.loadWizardCandidateVulns(document.getElementById('plan-wizard-vuln-search')?.value || '');
@@ -6382,10 +6883,10 @@ const App = {
 
     if (lblAll && lblCustom) {
       if (mode === 'ALL') {
-        lblAll.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 cursor-pointer transition';
+        lblAll.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-teal-600 bg-teal-50/50 dark:bg-teal-950/40 cursor-pointer transition';
         lblCustom.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 cursor-pointer transition';
       } else {
-        lblCustom.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 cursor-pointer transition';
+        lblCustom.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-teal-600 bg-teal-50/50 dark:bg-teal-950/40 cursor-pointer transition';
         lblAll.className = 'flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 cursor-pointer transition';
       }
     }
@@ -6406,7 +6907,7 @@ const App = {
     const listEl = document.getElementById('plan-wizard-candidate-vulns');
     if (!listEl) return;
 
-    listEl.innerHTML = `<div class="text-center py-2 text-[11px] text-slate-400"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin inline mr-1 text-indigo-500"></i>Buscando vulnerabilidades...</div>`;
+    listEl.innerHTML = `<div class="text-center py-2 text-xs text-slate-400"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin inline mr-1 text-teal-600"></i>Buscando vulnerabilidades...</div>`;
     this.refreshIcons();
 
     try {
@@ -6419,7 +6920,7 @@ const App = {
       this.state.planWizardCandidatePlugins = vulns || [];
       this.renderWizardCandidateVulns();
     } catch (err) {
-      listEl.innerHTML = `<div class="text-center py-2 text-[11px] text-rose-500">Erro ao buscar vulnerabilidades: ${this.escapeHtml(err.message)}</div>`;
+      listEl.innerHTML = `<div class="text-center py-2 text-xs text-rose-500">Erro ao buscar vulnerabilidades: ${this.escapeHtml(err.message)}</div>`;
     }
   },
 
@@ -6429,7 +6930,7 @@ const App = {
 
     const vulns = this.state.planWizardCandidatePlugins || [];
     if (vulns.length === 0) {
-      listEl.innerHTML = `<div class="text-center py-3 text-[11px] text-slate-400">Nenhuma vulnerabilidade ativa encontrada para os critérios selecionados.</div>`;
+      listEl.innerHTML = `<div class="text-center py-3 text-xs text-slate-400">Nenhuma vulnerabilidade ativa encontrada para os critérios selecionados.</div>`;
       return;
     }
 
@@ -6441,20 +6942,20 @@ const App = {
       const sevClass = v.severity === 'Critical' ? 'badge-critical' : (v.severity === 'High' ? 'badge-high' : (v.severity === 'Medium' ? 'badge-medium' : 'badge-low'));
 
       return `
-        <div class="flex items-center justify-between p-2 rounded-lg hover:bg-white dark:hover:bg-slate-800/80 transition border ${isSelected ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20' : 'border-transparent hover:border-slate-200 dark:hover:border-slate-700'} text-[11px]">
+        <div class="flex items-center justify-between p-2 rounded-lg hover:bg-white dark:hover:bg-slate-800/80 transition border ${isSelected ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20' : 'border-transparent hover:border-slate-200 dark:hover:border-slate-700'} text-xs">
           <div class="flex items-center gap-2 min-w-0">
-            <span class="${sevClass} px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
+            <span class="${sevClass} px-1.5 py-0.5 rounded text-xs font-bold shrink-0">
               ${this.escapeHtml(v.severity)}
             </span>
             <div class="min-w-0">
               <div class="font-bold text-slate-800 dark:text-slate-200 truncate">
                 ${this.escapeHtml(v.plugin_name)}
               </div>
-              <div class="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+              <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono">
                 <span>Plugin #${pidEscaped}</span>
                 ${v.cve ? `<span>• ${this.escapeHtml(v.cve)}</span>` : ''}
                 <span>•</span>
-                <span class="text-indigo-600 dark:text-indigo-400 font-semibold">${v.affected_hosts_count} host(s) afetado(s)</span>
+                <span class="text-teal-700 dark:text-teal-400 font-semibold">${v.affected_hosts_count} host(s) afetado(s)</span>
               </div>
             </div>
           </div>
@@ -6462,7 +6963,7 @@ const App = {
           <button type="button" onclick="App.toggleWizardVulnItem('${pidEscaped}')" class="px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition shrink-0 ${
             isSelected
               ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-              : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs'
+              : 'bg-teal-700 hover:bg-teal-600 text-white shadow-xs'
           }">
             ${isSelected ? '✓ Selecionado' : '+ Selecionar'}
           </button>
@@ -6538,7 +7039,7 @@ const App = {
     if (!listEl) return;
 
     listEl.innerHTML = plugins.map(p => `
-      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[11px]">
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-indigo-800 text-teal-800 dark:text-teal-300 text-xs">
         <span class="font-bold">#${this.escapeHtml(p.plugin_id)}</span>
         <span class="truncate max-w-[150px]">${this.escapeHtml(p.plugin_name)}</span>
         <button type="button" onclick="App.removeWizardPlugin('${this.escapeHtml(p.plugin_id)}')" class="hover:text-rose-500 cursor-pointer ml-0.5">
@@ -6558,7 +7059,7 @@ const App = {
 
     if (!detailsEl || !badgeEl) return;
 
-    detailsEl.innerHTML = `<div class="py-1 text-slate-400 text-center"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin inline mr-1 text-indigo-500"></i>Calculando abrangência e validação relacional...</div>`;
+    detailsEl.innerHTML = `<div class="py-1 text-slate-400 text-center"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin inline mr-1 text-teal-600"></i>Calculando abrangência e validação relacional...</div>`;
     this.refreshIcons();
 
     const hosts = this.state.planWizardSelectedHosts || [];
@@ -6593,7 +7094,7 @@ const App = {
       scopeHostIps = hosts.map(h => h.ip);
       scopePluginIds = plugins.map(p => String(p.plugin_id));
     } else {
-      badgeEl.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400';
+      badgeEl.className = 'px-2 py-0.5 rounded text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400';
       badgeEl.textContent = 'Aguardando Seleção';
       detailsEl.innerHTML = `<p class="text-slate-400 text-center py-1">Selecione ao menos um host na Etapa 2 ou uma vulnerabilidade acima para calcular o impacto.</p>`;
       return;
@@ -6612,7 +7113,7 @@ const App = {
       });
 
       if (!res.is_relational_valid) {
-        badgeEl.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300';
+        badgeEl.className = 'px-2 py-0.5 rounded text-xs font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300';
         badgeEl.textContent = 'Escopo Inválido / Não Relacional';
 
         detailsEl.innerHTML = `
@@ -6621,7 +7122,7 @@ const App = {
               <i data-lucide="alert-octagon" class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400"></i>
               <span>Crítica Relacional:</span>
             </div>
-            <p class="text-[11px] leading-relaxed font-medium">
+            <p class="text-xs leading-relaxed font-medium">
               ${this.escapeHtml(res.validation_message || 'Inconsistência relacional entre hosts e plugins informados.')}
             </p>
           </div>
@@ -6630,7 +7131,7 @@ const App = {
         return;
       }
 
-      badgeEl.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300';
+      badgeEl.className = 'px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300';
       badgeEl.textContent = '✓ Relacional Válido (ISO 27001)';
 
       const sev = res.severity_distribution || {};
@@ -6642,21 +7143,21 @@ const App = {
         <div class="space-y-1.5">
           <div class="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
             <span>Total de Apontamentos Vinculados:</span>
-            <span class="font-mono text-sm text-indigo-600 dark:text-indigo-400">${res.total_vulnerabilities} vulnerabilidades</span>
+            <span class="font-mono text-sm text-teal-700 dark:text-teal-400">${res.total_vulnerabilities} vulnerabilidades</span>
           </div>
-          <div class="flex flex-wrap items-center gap-2 pt-0.5 text-[11px]">
+          <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
             <span class="badge-critical px-1.5 py-0.5 rounded font-bold">${sev.Critical || 0} Críticas</span>
             <span class="badge-high px-1.5 py-0.5 rounded font-bold">${sev.High || 0} Altas</span>
             <span class="badge-medium px-1.5 py-0.5 rounded font-bold">${sev.Medium || 0} Médias</span>
             <span class="badge-low px-1.5 py-0.5 rounded font-bold">${sev.Low || 0} Baixas</span>
             <span class="text-slate-500 dark:text-slate-400 ml-auto font-mono">${res.unique_hosts_count} host(s) • ${res.unique_plugins_count} plugin(s)</span>
           </div>
-          <div class="flex items-center gap-1.5 pt-1 text-[11px]">
+          <div class="flex items-center gap-1.5 pt-1 text-xs">
             <span class="font-semibold text-slate-700 dark:text-slate-300">Tarefas que serão criadas:</span>
-            <span class="px-2 py-0.5 rounded font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">${tasksScopeLabel}</span>
+            <span class="px-2 py-0.5 rounded font-bold bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-indigo-800">${tasksScopeLabel}</span>
           </div>
           ${res.already_in_plan_count > 0 ? `
-            <div class="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 pt-0.5">
+            <div class="text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 pt-0.5">
               <i data-lucide="info" class="w-3 h-3"></i>
               <span>${res.already_in_plan_count} ocorrência(s) já pertencem a outros planos e serão migradas conforme precedência ISO 27001.</span>
             </div>
@@ -6665,9 +7166,9 @@ const App = {
       `;
       this.refreshIcons();
     } catch (err) {
-      badgeEl.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300';
+      badgeEl.className = 'px-2 py-0.5 rounded text-xs font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300';
       badgeEl.textContent = 'Erro';
-      detailsEl.innerHTML = `<div class="text-rose-500 text-[11px] py-1">Erro ao calcular impacto: ${this.escapeHtml(err.message)}</div>`;
+      detailsEl.innerHTML = `<div class="text-rose-500 text-xs py-1">Erro ao calcular impacto: ${this.escapeHtml(err.message)}</div>`;
     }
   },
 
@@ -6694,7 +7195,7 @@ const App = {
 
     try {
       document.getElementById('action-plan-modal-title').innerHTML = `
-        <i data-lucide="clipboard-check" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i>
+        <i data-lucide="clipboard-check" class="w-5 h-5 text-teal-700 dark:text-teal-400"></i>
         <span>Novo Plano de Ação</span>
       `;
       document.getElementById('action-plan-id').value = '';
@@ -6856,7 +7357,7 @@ const App = {
     try {
       const p = await API.getActionPlan(planId);
       document.getElementById('action-plan-modal-title').innerHTML = `
-        <i data-lucide="edit-3" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i>
+        <i data-lucide="edit-3" class="w-5 h-5 text-teal-700 dark:text-teal-400"></i>
         <span>Editar Plano de Ação #${p.id}</span>
       `;
       document.getElementById('action-plan-id').value = p.id;
@@ -7090,7 +7591,7 @@ const App = {
     document.getElementById('plan-detail-title').textContent = 'Carregando plano...';
     document.getElementById('plan-detail-tasks-list').innerHTML = `
       <div class="text-center py-8 text-slate-400">
-        <i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto text-indigo-500 mb-1"></i>
+        <i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto text-teal-600 mb-1"></i>
         <span>Carregando etapas técnicas...</span>
       </div>
     `;
@@ -7136,7 +7637,7 @@ const App = {
       const tagsContainer = document.getElementById('plan-detail-tags-container');
       if (tagsContainer) {
         if (p.tags && p.tags.length > 0) {
-          tagsContainer.innerHTML = p.tags.map(t => `<span class="px-2 py-0.5 rounded text-[10px] font-semibold" style="background-color: ${(t.color || '#6366f1')}20; color: ${t.color || '#6366f1'}; border: 1px solid ${(t.color || '#6366f1')}40;">${this.escapeHtml(t.name || t)}</span>`).join('');
+          tagsContainer.innerHTML = p.tags.map(t => `<span class="px-2 py-0.5 rounded text-xs font-semibold" style="background-color: ${(t.color || '#0F766E')}20; color: ${t.color || '#0F766E'}; border: 1px solid ${(t.color || '#0F766E')}40;">${this.escapeHtml(t.name || t)}</span>`).join('');
         } else {
           tagsContainer.innerHTML = '';
         }
@@ -7182,17 +7683,17 @@ const App = {
             <div class="p-3.5 rounded-xl border ${isDone ? 'bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-900/40' : 'bg-slate-50 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800'} shadow-xs space-y-2">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="flex items-center space-x-2 min-w-0">
-                  <span class="w-5 h-5 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[10px] font-bold">
+                  <span class="w-5 h-5 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-xs font-bold">
                     ${idx + 1}
                   </span>
                   <h5 class="font-bold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5 ${isDone ? 'line-through text-slate-500' : ''}">
-                    <i data-lucide="server" class="w-3.5 h-3.5 text-indigo-500 shrink-0"></i>
+                    <i data-lucide="server" class="w-3.5 h-3.5 text-teal-600 shrink-0"></i>
                     <span>${this.escapeHtml(t.title)}</span>
                   </h5>
                 </div>
                 <div class="flex items-center space-x-1.5">
                   <!-- Quick Status Dropdown -->
-                  <select onchange="App.quickUpdateTaskStatus(${t.id}, this.value)" class="text-[11px] px-2 py-1 rounded-lg font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer">
+                  <select onchange="App.quickUpdateTaskStatus(${t.id}, this.value)" class="text-xs px-2 py-1 rounded-lg font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-600 cursor-pointer">
                     <option value="TODO" ${t.status === 'TODO' ? 'selected' : ''}>A Fazer (TODO)</option>
                     <option value="DOING" ${t.status === 'DOING' ? 'selected' : ''}>Em Execução (DOING)</option>
                     <option value="REVIEW" ${t.status === 'REVIEW' ? 'selected' : ''}>Em Revisão (REVIEW)</option>
@@ -7210,8 +7711,8 @@ const App = {
 
               ${t.description ? `
                 <div class="p-2 rounded-lg bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/50 space-y-1">
-                  <div class="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500">Vulnerabilidade(s) Alvo:</div>
-                  <p class="text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-line font-medium leading-relaxed">${this.escapeHtml(t.description)}</p>
+                  <div class="text-xs uppercase font-bold text-slate-400 dark:text-slate-500">Vulnerabilidade(s) Alvo:</div>
+                  <p class="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-line font-medium leading-relaxed">${this.escapeHtml(t.description)}</p>
                 </div>
               ` : ''}
 
@@ -7223,20 +7724,20 @@ const App = {
                                      (vl.severity || '').toLowerCase() === 'medium' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' :
                                      'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
                     return `
-                      <button type="button" onclick="App.openVulnDetailsModal(${vl.vulnerability_id})" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-white dark:bg-slate-800 border ${sevClass} hover:ring-1 hover:ring-indigo-400 transition cursor-pointer" title="Clique para ver os detalhes da vulnerabilidade #${vl.plugin_id}">
+                      <button type="button" onclick="App.openVulnDetailsModal(${vl.vulnerability_id})" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-white dark:bg-slate-800 border ${sevClass} hover:ring-1 hover:ring-teal-400 transition cursor-pointer" title="Clique para ver os detalhes da vulnerabilidade #${vl.plugin_id}">
                         <span class="font-bold">#${vl.plugin_id}</span>
-                        ${vl.severity ? `<span class="font-semibold text-[9px] uppercase">${vl.severity}</span>` : ''}
+                        ${vl.severity ? `<span class="font-semibold text-xs uppercase">${vl.severity}</span>` : ''}
                         <i data-lucide="external-link" class="w-2.5 h-2.5 opacity-60"></i>
                       </button>
                     `;
                   }).join('')}
                   ${t.vulnerability_links.length > 4 ? `
-                    <span class="text-[10px] text-slate-400 font-semibold">+${t.vulnerability_links.length - 4} mais</span>
+                    <span class="text-xs text-slate-400 font-semibold">+${t.vulnerability_links.length - 4} mais</span>
                   ` : ''}
                 </div>
               ` : ''}
 
-              <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60 text-[11px] text-slate-500 dark:text-slate-400">
+              <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60 text-xs text-slate-500 dark:text-slate-400">
                 <div class="flex items-center space-x-3">
                   <span>
                     <i data-lucide="user" class="w-3 h-3 inline mr-1 text-slate-400"></i>
@@ -7248,7 +7749,7 @@ const App = {
                   </span>
                 </div>
                 ${t.vulnerabilities_count > 0 ? `
-                  <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10px] font-semibold">
+                  <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-indigo-800 text-xs font-semibold">
                     <i data-lucide="shield" class="w-3 h-3"></i>
                     <span>${t.vulnerabilities_count} vulnerabilidade(s) vinculada(s)</span>
                   </span>
@@ -7308,7 +7809,7 @@ const App = {
     if (!modal) return;
 
     document.getElementById('action-task-modal-title').innerHTML = `
-      <i data-lucide="list-checks" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i>
+      <i data-lucide="list-checks" class="w-5 h-5 text-teal-700 dark:text-teal-400"></i>
       <span>Nova Etapa Técnica</span>
     `;
     document.getElementById('action-task-id').value = '';
@@ -7339,7 +7840,7 @@ const App = {
     if (!modal) return;
 
     document.getElementById('action-task-modal-title').innerHTML = `
-      <i data-lucide="edit-3" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i>
+      <i data-lucide="edit-3" class="w-5 h-5 text-teal-700 dark:text-teal-400"></i>
       <span>Editar Etapa #${task.id}</span>
     `;
     document.getElementById('action-task-id').value = task.id;
@@ -7510,7 +8011,7 @@ const App = {
           <td colspan="7" class="text-center py-10 text-slate-400 text-xs">
             <i data-lucide="cloud-off" class="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2"></i>
             <p class="font-semibold text-slate-600 dark:text-slate-300">Nenhuma integração de scanner configurada.</p>
-            <p class="text-[11px] mt-1 text-slate-400">Conecte APIs do Tenable (IO, SC, Nessus) ou Microsoft Defender para importar vulnerabilidades automaticamente.</p>
+            <p class="text-xs mt-1 text-slate-400">Conecte APIs do Tenable (IO, SC, Nessus) ou Microsoft Defender para importar vulnerabilidades automaticamente.</p>
             <button onclick="App.openCreateScannerIntegrationModal('${selectedGroupId}')" class="mt-3 px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition cursor-pointer">
               Criar Nova Conexão
             </button>
@@ -7525,27 +8026,27 @@ const App = {
         // Platform Badge
         let platformBadge = '';
         if (i.scanner_type === 'tenable_io') {
-          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30">
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30">
             <i data-lucide="shield" class="w-3.5 h-3.5"></i>
             <span>Tenable.io</span>
           </span>`;
         } else if (i.scanner_type === 'tenable_sc') {
-          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-bold bg-teal-600/10 text-teal-700 dark:text-teal-400 border border-teal-600/30">
             <i data-lucide="shield" class="w-3.5 h-3.5"></i>
             <span>Tenable.sc</span>
           </span>`;
         } else if (i.scanner_type === 'tenable_nessus_pro') {
-          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
             <i data-lucide="shield" class="w-3.5 h-3.5"></i>
             <span>Nessus Pro</span>
           </span>`;
         } else if (i.scanner_type === 'ms_defender') {
-          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30">
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30">
             <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
             <span>MS Defender</span>
           </span>`;
         } else if (i.scanner_type === 'openvas' || i.scanner_type === 'greenbone_gvm') {
-          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+          platformBadge = `<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
             <i data-lucide="radio" class="w-3.5 h-3.5"></i>
             <span>OpenVAS / GVM</span>
           </span>`;
@@ -7553,35 +8054,35 @@ const App = {
 
         // Status Badge
         const statusBadge = i.is_enabled
-          ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">Ativo</span>`
-          : `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-300 dark:border-slate-700">Inativo</span>`;
+          ? `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">Ativo</span>`
+          : `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-300 dark:border-slate-700">Inativo</span>`;
 
         // Last Sync Badge & Details
         let syncBadge = '';
         if (i.last_sync_status === 'success') {
-          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
+          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
             <i data-lucide="check-circle" class="w-3 h-3"></i>
             <span>Sucesso</span>
           </span>`;
         } else if (i.last_sync_status === 'failure') {
-          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/30">
+          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-bold bg-rose-500/10 text-rose-600 border border-rose-500/30">
             <i data-lucide="alert-circle" class="w-3 h-3"></i>
             <span>Falha</span>
           </span>`;
         } else if (i.last_sync_status === 'running') {
-          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/30 animate-pulse">
+          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-bold bg-amber-500/10 text-amber-600 border border-amber-500/30 animate-pulse">
             <i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i>
             <span>Sincronizando</span>
           </span>`;
         } else {
-          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/10 text-slate-500 border border-slate-500/30">
+          syncBadge = `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-bold bg-slate-500/10 text-slate-500 border border-slate-500/30">
             <span>Nunca executado</span>
           </span>`;
         }
 
         const syncTelemetry = i.last_sync_at
-          ? `<div class="text-[10px] text-slate-400 mt-0.5">${i.last_sync_at_formatted || i.last_sync_at} • ${i.vulnerabilities_imported_count || 0} achados</div>`
-          : `<div class="text-[10px] text-slate-400 mt-0.5">Aguardando 1º ciclo</div>`;
+          ? `<div class="text-xs text-slate-400 mt-0.5">${i.last_sync_at_formatted || i.last_sync_at} • ${i.vulnerabilities_imported_count || 0} achados</div>`
+          : `<div class="text-xs text-slate-400 mt-0.5">Aguardando 1º ciclo</div>`;
 
         // Schedule Label
         const schedIcon = i.schedule_type === 'manual' ? 'hand' : i.schedule_type === 'interval' ? 'clock' : 'calendar';
@@ -7608,8 +8109,8 @@ const App = {
           </td>
           <td>
             <div class="font-semibold text-slate-800 dark:text-slate-200">${this.escapeHtml(i.name)}</div>
-            <div class="text-[10px] text-slate-400 font-mono truncate max-w-xs" title="${this.escapeHtml(endpointSubtitle)}">${this.escapeHtml(endpointSubtitle)}</div>
-            <div class="text-[10px] mt-0.5">${scopeSubtitle}</div>
+            <div class="text-xs text-slate-400 font-mono truncate max-w-xs" title="${this.escapeHtml(endpointSubtitle)}">${this.escapeHtml(endpointSubtitle)}</div>
+            <div class="text-xs mt-0.5">${scopeSubtitle}</div>
           </td>
           <td>
             ${scheduleHtml}
@@ -8596,15 +9097,15 @@ const App = {
       const rowsHtml = jobs.map(j => {
         let statusBadge = '';
         if (j.status === 'queued') {
-          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30 flex items-center space-x-1 w-max"><i data-lucide="clock" class="w-3 h-3"></i><span>Na Fila</span></span>`;
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30 flex items-center space-x-1 w-max"><i data-lucide="clock" class="w-3 h-3"></i><span>Na Fila</span></span>`;
         } else if (j.status === 'running') {
-          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-500 border border-sky-500/30 flex items-center space-x-1 w-max animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Processando (${j.progress_percent}%)</span></span>`;
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-sky-500/15 text-sky-500 border border-sky-500/30 flex items-center space-x-1 w-max animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Processando (${j.progress_percent}%)</span></span>`;
         } else if (j.status === 'completed') {
-          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 flex items-center space-x-1 w-max"><i data-lucide="check" class="w-3 h-3"></i><span>Concluído</span></span>`;
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 flex items-center space-x-1 w-max"><i data-lucide="check" class="w-3 h-3"></i><span>Concluído</span></span>`;
         } else if (j.status === 'failed') {
-          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30 flex items-center space-x-1 w-max"><i data-lucide="alert-triangle" class="w-3 h-3"></i><span>Falhou</span></span>`;
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30 flex items-center space-x-1 w-max"><i data-lucide="alert-triangle" class="w-3 h-3"></i><span>Falhou</span></span>`;
         } else {
-          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/15 text-slate-400 border border-slate-500/30 flex items-center space-x-1 w-max"><i data-lucide="x" class="w-3 h-3"></i><span>Cancelado</span></span>`;
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-500/15 text-slate-400 border border-slate-500/30 flex items-center space-x-1 w-max"><i data-lucide="x" class="w-3 h-3"></i><span>Cancelado</span></span>`;
         }
 
         const isCsv = j.job_type === 'csv_upload';
@@ -8617,12 +9118,12 @@ const App = {
 
         let actions = '';
         if (j.status === 'queued') {
-          actions += `<button onclick="App.cancelJob(${j.id})" title="Cancelar tarefa da fila" class="px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-[10px] font-bold transition cursor-pointer">Cancelar</button>`;
+          actions += `<button onclick="App.cancelJob(${j.id})" title="Cancelar tarefa da fila" class="px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-xs font-bold transition cursor-pointer">Cancelar</button>`;
         } else if (j.status === 'failed' || j.status === 'cancelled') {
-          actions += `<button onclick="App.retryJob(${j.id})" title="Tentar novamente" class="px-2 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-[#0F766E] dark:text-teal-400 text-[10px] font-bold transition cursor-pointer">Repetir</button>`;
+          actions += `<button onclick="App.retryJob(${j.id})" title="Tentar novamente" class="px-2 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-[#0F766E] dark:text-teal-400 text-xs font-bold transition cursor-pointer">Repetir</button>`;
         }
         if (j.scan_id) {
-          actions += ` <button onclick="App.viewScanFromJob(${j.scan_id})" title="Ver Scan gerado" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-semibold transition cursor-pointer">Scan #${j.scan_id}</button>`;
+          actions += ` <button onclick="App.viewScanFromJob(${j.scan_id})" title="Ver Scan gerado" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition cursor-pointer">Scan #${j.scan_id}</button>`;
         }
 
         return `
@@ -8638,7 +9139,7 @@ const App = {
               <div class="font-semibold text-slate-900 dark:text-white truncate max-w-[180px]" title="${j.scan_name || j.filename || ''}">
                 ${j.scan_name || j.filename || 'Sem título'}
               </div>
-              <div class="text-[10px] text-slate-400 truncate max-w-[180px]">
+              <div class="text-xs text-slate-400 truncate max-w-[180px]">
                 ${j.filename || (isCsv ? 'Nessus CSV' : 'Sincronização API')}
               </div>
             </td>
@@ -8651,18 +9152,18 @@ const App = {
               ` : ''}
             </td>
             <td class="py-2.5 px-3">
-              <div class="text-[11px] text-slate-600 dark:text-slate-300 max-w-[220px] truncate" title="${j.progress_message || j.error_message || ''}">
+              <div class="text-xs text-slate-600 dark:text-slate-300 max-w-[220px] truncate" title="${j.progress_message || j.error_message || ''}">
                 ${j.progress_message || (j.error_message ? `<span class="text-rose-500 font-semibold">${j.error_message}</span>` : '-')}
               </div>
               ${j.hosts_count > 0 || j.findings_count > 0 ? `
-                <div class="text-[10px] text-slate-400 mt-0.5">
+                <div class="text-xs text-slate-400 mt-0.5">
                   ${j.hosts_count} hosts, ${j.findings_count} vulnerabilidades
                 </div>
               ` : ''}
             </td>
             <td class="py-2.5 px-3">
-              <div class="font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-300">${durationText}</div>
-              <div class="text-[10px] text-slate-400">${createdDate}</div>
+              <div class="font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">${durationText}</div>
+              <div class="text-xs text-slate-400">${createdDate}</div>
             </td>
             <td class="py-2.5 px-3 text-right whitespace-nowrap">
               ${actions || '-'}

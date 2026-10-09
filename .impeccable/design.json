@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-08T14:17:30Z",
+  "title": "Design System: GvulStand",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Deep Petroleum Teal",
+        "canonical": "#0f766e",
+        "tonalRamp": ["#042f2e", "#134e4a", "#115e59", "#0f766e", "#0d9488", "#14b8a6", "#2dd4bf", "#ccfbf1"]
+      },
+      "secondary": {
+        "role": "secondary",
+        "displayName": "Cyber Ocean Blue",
+        "canonical": "#0284c7",
+        "tonalRamp": ["#0c4a6e", "#075985", "#0369a1", "#0284c7", "#38bdf8", "#7dd3fc", "#bae6fd", "#e0f2fe"]
+      },
+      "bg-canvas": {
+        "role": "neutral",
+        "displayName": "Clean Corporate Light Canvas",
+        "canonical": "#f8f9fa",
+        "tonalRamp": ["#cbd5e1", "#e2e8f0", "#f1f5f9", "#f8fafc", "#f8f9fa", "#ffffff", "#ffffff", "#ffffff"]
+      },
+      "dark-bg-canvas": {
+        "role": "neutral",
+        "displayName": "Obsidian Dark Canvas",
+        "canonical": "#0b0f19",
+        "tonalRamp": ["#05080e", "#0b0f19", "#101726", "#131b2e", "#17233b", "#1e293b", "#334155", "#475569"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Títulos macro, KPIs principais e cabeçalhos de visualização executiva."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Títulos de seções, painéis e cabeçalhos de grupos de ativos."
+      },
+      "code": {
+        "displayName": "Code / Technical",
+        "purpose": "Identificadores técnicos, endereços IP, portas, hashes e códigos CVE."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-card-light",
+        "value": "0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 8px 24px -12px rgba(15, 23, 42, 0.08)",
+        "purpose": "Elevação padrão de cartões em tema claro."
+      },
+      {
+        "name": "shadow-card-dark",
+        "value": "0 4px 20px -4px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04)",
+        "purpose": "Elevação de cartões em tema escuro com contorno sutil."
+      },
+      {
+        "name": "shadow-card-hover",
+        "value": "0 4px 6px -1px rgba(15, 118, 110, 0.06), 0 14px 28px -10px rgba(15, 23, 42, 0.12)",
+        "purpose": "Elevação reativa ao passar o mouse com realce teal."
+      },
+      {
+        "name": "shadow-modal",
+        "value": "0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.05)",
+        "purpose": "Profundidade de diálogos modais sobrepostos."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Aceleração padrão para transições de estado."
+      },
+      {
+        "name": "duration-fast",
+        "value": "180ms",
+        "purpose": "Transições rápidas de links de navegação e botões."
+      },
+      {
+        "name": "duration-smooth",
+        "value": "220ms",
+        "purpose": "Elevação e transição de painéis de vidro."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" },
+      { "name": "2xl", "value": "1536px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Botão de ação principal corporativa em Verde Petróleo com feedback tátil ao hover.",
+      "html": "<button class=\"ds-btn-primary\"><svg class=\"ds-btn-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"/></svg><span>Aplicar Tratativa</span></button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background-color: #0f766e; color: #ffffff; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13px; font-weight: 600; padding: 8px 16px; border: 1px solid #0d655e; border-radius: 8px; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 1px 2px rgba(15, 118, 110, 0.2); } .ds-btn-primary:hover { background-color: #0d655e; box-shadow: 0 4px 10px -1px rgba(15, 118, 110, 0.35); transform: translateY(-1px); } .ds-btn-primary:active { transform: translateY(0); } .ds-btn-primary:focus-visible { outline: 2px solid #14b8a6; outline-offset: 2px; } .ds-btn-icon { width: 15px; height: 15px; }"
+    },
+    {
+      "name": "Critical Severity Badge",
+      "kind": "chip",
+      "refersTo": "badge-critical",
+      "description": "Badge de severidade Crítica CVSS 9.0–10.0 com fundo translúcido e borda de alto contraste.",
+      "html": "<span class=\"ds-badge-critical\">CRITICAL 9.8</span>",
+      "css": ".ds-badge-critical { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }"
+    },
+    {
+      "name": "Active Exploit Badge",
+      "kind": "chip",
+      "refersTo": "badge-exploit",
+      "description": "Badge para vulnerabilidade com exploit público conhecido e borda pulsante de advertência.",
+      "html": "<span class=\"ds-badge-exploit\"><svg class=\"ds-badge-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"12\" r=\"1\"/><circle cx=\"15\" cy=\"12\" r=\"1\"/><path d=\"M8 20v2h8v-2\"/><path d=\"m12.5 17-.5-1-.5 1h1z\"/><path d=\"M16 20a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20\"/></svg><span>EXPLOIT ATIVO</span></span>",
+      "css": ".ds-badge-exploit { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 6px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.03em; background-color: #f3e8ff; color: #5b21b6; border: 1px solid rgba(124, 58, 237, 0.4); animation: ds-pulse-border 2s infinite; } .ds-badge-icon { width: 12px; height: 12px; } @keyframes ds-pulse-border { 0%, 100% { border-color: rgba(124, 58, 237, 0.35); } 50% { border-color: rgba(124, 58, 237, 0.9); } }"
+    },
+    {
+      "name": "Glass Panel Card",
+      "kind": "card",
+      "refersTo": "card-glass",
+      "description": "Painel de conteúdo estruturado com borda de 1px e elevação suave ao passar o mouse.",
+      "html": "<div class=\"ds-card-glass\"><div class=\"ds-card-header\"><h4 class=\"ds-card-title\">Top 100 Críticas</h4><span class=\"ds-card-badge\">12 não tratadas</span></div><p class=\"ds-card-body\">Vulnerabilidades que exigem atenção imediata sob o SLA de 7 dias.</p></div>",
+      "css": ".ds-card-glass { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 8px 24px -12px rgba(15, 23, 42, 0.08); transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; } .ds-card-glass:hover { transform: translateY(-2px); border-color: #0f766e; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.06), 0 14px 28px -10px rgba(15, 23, 42, 0.12); } .ds-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; } .ds-card-title { margin: 0; font-size: 15px; font-weight: 700; color: #0f172a; } .ds-card-badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 9999px; background-color: #fee2e2; color: #991b1b; } .ds-card-body { margin: 0; font-size: 13px; color: #64748b; line-height: 1.45; }"
+    },
+    {
+      "name": "Compact Technical Table Row",
+      "kind": "custom",
+      "refersTo": "table-row",
+      "description": "Linha de dados técnicos de alta densidade com IP tabular e CVE em JetBrains Mono.",
+      "html": "<tr class=\"ds-table-row\"><td class=\"ds-td ds-td-ip\">192.168.10.45</td><td class=\"ds-td ds-td-cve\">CVE-2024-21626</td><td class=\"ds-td\"><span class=\"ds-td-crit\">CRITICAL</span></td><td class=\"ds-td ds-td-sla\">2 dias restantes</td></tr>",
+      "css": ".ds-table-row { transition: background-color 0.15s ease; border-bottom: 1px solid #e2e8f0; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; } .ds-table-row:hover { background-color: #f8fafc; } .ds-td { padding: 8px 12px; font-size: 12px; color: #1e293b; } .ds-td-ip, .ds-td-cve { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #0f172a; } .ds-td-crit { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background-color: #fee2e2; color: #991b1b; } .ds-td-sla { color: #d97706; font-weight: 600; font-size: 11px; }"
+    },
+    {
+      "name": "Sidebar Navigation Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Item de menu lateral ativo com caixa destacada de ícone e realce Verde Petróleo.",
+      "html": "<a class=\"ds-nav-item active\"><div class=\"ds-nav-icon-box\"><svg class=\"ds-nav-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect width=\"7\" height=\"9\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"9\" x=\"14\" y=\"12\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\"/></svg></div><div class=\"ds-nav-text\"><span class=\"ds-nav-title\">Visão Executiva</span><span class=\"ds-nav-subtitle\">Dashboard consolidado</span></div></a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 10px; text-decoration: none; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; cursor: pointer; transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1); } .ds-nav-item.active { background-color: #e6f4f1; box-shadow: 0 1px 2px rgba(15, 118, 110, 0.06); } .ds-nav-icon-box { padding: 4px; border-radius: 6px; background-color: #ccfbf1; color: #0f766e; display: flex; align-items: center; justify-content: center; } .ds-nav-icon { width: 16px; height: 16px; } .ds-nav-text { display: flex; flex-direction: column; } .ds-nav-title { font-size: 12px; font-weight: 700; color: #0f766e; line-height: 1.25; } .ds-nav-subtitle { font-size: 10px; color: #0d9488; line-height: 1.15; }"
+    },
+    {
+      "name": "Search & Filter Input",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Campo de filtro e busca rápida com anel de foco Verde Petróleo e tipografia compacta.",
+      "html": "<div class=\"ds-input-wrapper\"><svg class=\"ds-input-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg><input type=\"text\" class=\"ds-input-field\" placeholder=\"Filtrar por IP, host ou CVE...\" /></div>",
+      "css": ".ds-input-wrapper { position: relative; display: inline-flex; align-items: center; width: 100%; max-width: 320px; } .ds-input-icon { position: absolute; left: 10px; width: 14px; height: 14px; color: #94a3b8; pointer-events: none; } .ds-input-field { width: 100%; height: 34px; padding: 6px 12px 6px 32px; border-radius: 8px; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 12px; transition: all 0.2s ease; outline: none; } .ds-input-field:focus { border-color: #0f766e; box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.18); } .ds-input-field::placeholder { color: #94a3b8; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Sentinela de Segurança Corporativa",
+    "overview": "O GvulStand é arquitetado como um centro de comando operacional de segurança da informação, onde cada elemento de interface serve ao propósito de diagnosticar, priorizar e remediar riscos cibernéticos sem ambiguidades. A estética é limpa, sóbria e corporativa, fundamentada na solidez do Verde Petróleo (Petroleum Teal) sobre superfícies em ardósia técnica (Obsidian Slate e Clean White).\n\nA densidade é deliberadamente calculada para analistas e líderes SecOps: informações críticas — endereços IP, identificadores CVE, scores CVSS e prazos de SLA — são dispostas com máxima escaneabilidade visual através de micro-labels em caixa alta, tipografia tabular monospaçada e tabelas refinadas.",
+    "keyCharacteristics": [
+      "Rigor Analítico e Alta Densidade: Estruturação orientada a dados com diferenciação tipográfica imediata entre prosa analítica e identificadores técnicos.",
+      "Autoridade Cromática Contida: Verde Petróleo como âncora de segurança, com paleta de severidade estritamente reservada para sinalização CVSS 3.1.",
+      "Profundidade Tonal e Camadas Restritas: Cartões com contornos sutis de 1px e elevação reativa apenas sob demanda interativa.",
+      "Consistência Dual (Dark/Light): Experiência nativa de alto contraste calibrada tanto para monitoramento contínuo quanto para auditorias e relatórios."
+    ],
+    "rules": [
+      {
+        "name": "The Strict CVSS Rule",
+        "body": "As cores de severidade (vermelho, laranja, amarelo, azul, verde) são reservadas exclusivamente para representação de risco técnico e status de vulnerabilidade. É terminantemente proibido utilizar o vermelho crítico para botões comuns de cancelamento ou elementos decorativos.",
+        "section": "colors"
+      },
+      {
+        "name": "The Signal-Over-Noise Rule",
+        "body": "Cores de alerta aparecem em menos de 15% da área visível de qualquer tela em repouso. O contraste cromático existe para guiar o olho do analista direto ao perigo real.",
+        "section": "colors"
+      },
+      {
+        "name": "The Exploit Pulse Rule",
+        "body": "Apenas vulnerabilidades comprovadamente exploráveis ou com malware conhecido recebem o acento roxo (#7C3AED) e o efeito pulsante de borda.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rigor Rule",
+        "body": "Qualquer dado numérico comparativo, endereço IP, hash ou timestamp deve ser renderizado com alinhamento tabular ou na fonte monoespaciada JetBrains Mono para evitar saltos visuais durante a triagem.",
+        "section": "typography"
+      },
+      {
+        "name": "The Restrained Elevation Rule",
+        "body": "Sombras nunca são puramente decorativas. A elevação reforça hierarquia de janelas modais ou indica capacidade de clique imediato em cartões operacionais.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do manter a largura útil expandida (98% da tela) para tabelas e comparativos de vulnerabilidades.",
+      "Do utilizar JetBrains Mono obrigatoriamente para endereços IP, portas de rede, identificadores CVE e códigos de plugins.",
+      "Do aplicar o Verde Petróleo (#0F766E / #14B8A6) como foco principal de ação e confirmação institucional.",
+      "Do reservar as cores funcionais de severidade (vermelho, laranja, amarelo) com exclusividade para métricas de risco CVSS.",
+      "Do preservar a trilha de auditoria e justificativas visíveis para qualquer status de governança ISO 27001."
+    ],
+    "donts": [
+      "Don't utilizar estilos 'hacker neon/cyberpunk', brilhos excessivos ou paletas com saturação desconexa da autoridade corporativa.",
+      "Don't inflar espaçamentos verticais em tabelas e listas que prejudiquem a densidade necessária para triagem de SecOps.",
+      "Don't utilizar cores críticas (vermelho CVSS) em botões comuns de fechar modal ou ações secundárias.",
+      "Don't remover ou ocultar o código de identificação do plugin ou CVE nas listagens de vulnerabilidades.",
+      "Don't permitir que elementos em repouso usem sombras volumosas que poluam a leitura de dados."
+    ]
+  }
+}

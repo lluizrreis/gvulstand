@@ -8,7 +8,7 @@ from sqlalchemy import func, desc
 from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, check_user_group_access, get_user_allowed_group_ids
-from app.services.scan_service import get_latest_scan_ids
+from app.services.scan_service import get_latest_scan_ids, compute_trend_data
 from app.services.parameter_service import apply_indicator_exclusion, get_effective_slas
 
 CVE_PATTERN = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
@@ -55,6 +55,7 @@ def get_dashboard_stats(
             info_count=0,
             exploitable_total_count=0,
             iso27001_risk_score=0.0,
+            posture_score=100,
             iso9001_remediation_efficiency=None,
             severity_breakdown={"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
             aging_breakdown={"0_30": 0, "31_60": 0, "61_90": 0, "above_90": 0},
@@ -92,7 +93,8 @@ def get_dashboard_stats(
                 "low": 0
             },
             asset_group_distribution=[],
-            recent_scans=[]
+            recent_scans=[],
+            trend_data={"labels": [], "discovered": [], "remediated": [], "has_sufficient_data": False}
         )
 
     scan_q = db.query(models.Scan).filter(models.Scan.id.in_(active_scan_ids))
@@ -123,6 +125,8 @@ def get_dashboard_stats(
     # ISO 27001 Risk Posture Score
     raw_risk = (crit_count * 10.0) + (high_count * 5.0) + (med_count * 2.0) + (low_count * 0.5)
     iso27001_risk_score = round(raw_risk / max(1, total_unique_hosts), 1)
+    import math
+    posture_score = max(10, min(100, round(100 - (16.0 * math.log(1.0 + iso27001_risk_score)))))
 
     # ISO 9001 Remediation Efficiency
     remediated_count = vuln_q.filter(
@@ -483,6 +487,9 @@ def get_dashboard_stats(
         "low": plan_low
     }
 
+    allowed_ids = get_user_allowed_group_ids(db, current_user, action="view")
+    trend_data = compute_trend_data(db, asset_group_id, allowed_ids)
+
     return schemas.DashboardStats(
         total_scans=total_scans,
         total_asset_groups=total_asset_groups,
@@ -495,6 +502,7 @@ def get_dashboard_stats(
         info_count=info_count,
         exploitable_total_count=exploit_count,
         iso27001_risk_score=iso27001_risk_score,
+        posture_score=posture_score,
         iso9001_remediation_efficiency=remediation_eff,
         severity_breakdown={
             "Critical": crit_count,
@@ -545,7 +553,8 @@ def get_dashboard_stats(
         treatment_breakdown=treatment_breakdown,
         action_plans_summary=action_plans_summary,
         asset_group_distribution=group_dist,
-        recent_scans=recent_scans
+        recent_scans=recent_scans,
+        trend_data=trend_data
     )
 
 @router.get("/top-critical", response_model=List[schemas.TopCriticalVuln])

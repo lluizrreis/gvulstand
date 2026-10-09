@@ -39,7 +39,7 @@
         margin: 0 !important;
         padding: 0 !important;
         font-size: 8pt !important;
-        line-height: 1.25 !important;
+        line-height: 1.4 !important;
       }
       .report-container {
         max-width: 100% !important;
@@ -50,15 +50,18 @@
         border: none !important;
         border-radius: 0 !important;
       }
-      /* Redução e uniformização das fontes para visual limpo sem vazamentos */
-      h1, h2 { font-size: 10.5pt !important; line-height: 1.2 !important; }
-      h3, h4 { font-size: 9pt !important; line-height: 1.2 !important; }
-      p, td, th, span, div, li {
+      /* Hierarquia tipográfica para impressão A4 */
+      h1 { font-size: 16px !important; line-height: 1.25 !important; font-weight: 800 !important; }
+      h2 { font-size: 10.5pt !important; line-height: 1.3 !important; font-weight: 700 !important; }
+      h3, h4 { font-size: 9.5pt !important; line-height: 1.3 !important; font-weight: 600 !important; }
+      h1 span, h2 span, h3 span, h4 span { font-size: inherit !important; line-height: inherit !important; }
+      p, td, th, li {
         font-size: 7.8pt !important;
-        line-height: 1.25 !important;
+        line-height: 1.4 !important;
       }
       .font-mono {
         font-size: 7.2pt !important;
+        font-variant-numeric: tabular-nums lining-nums !important;
       }
       /* Evita quebras no meio de seções */
       .avoid-break, section {
@@ -201,7 +204,7 @@
     }
     .custom-scroll::-webkit-scrollbar-thumb {
       background-color: #94a3b8;
-      border-radius: 3px;
+      border-radius: 8px;
     }
     .custom-scroll::-webkit-scrollbar-track {
       background-color: #f1f5f9;
@@ -220,8 +223,8 @@
           <i data-lucide="shield-check" class="w-4 h-4"></i>
         </div>
         <div>
-          <h1 class="text-xs font-bold tracking-tight">GvulStand • Relatório Executivo</h1>
-          <p class="text-[10px] text-slate-400">Sumário Estratégico de Vulnerabilidades • Pronto para Impressão & Exportação PDF</p>
+          <div class="text-xs font-bold tracking-tight">GvulStand • Relatório Executivo</div>
+          <p class="text-xs text-slate-400">Sumário Estratégico de Vulnerabilidades • Pronto para Impressão & Exportação PDF</p>
         </div>
       </div>
 
@@ -255,7 +258,7 @@
   <div id="report-loading" class="flex flex-col items-center justify-center min-h-[70vh] p-8">
     <div class="w-10 h-10 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
     <p class="mt-3 text-sm font-semibold text-slate-700">Consolidando dados executivos e gerando indicadores...</p>
-    <p class="text-xs text-slate-400 mt-0.5">Calculando Risk Score, matriz CVSS, EOL, SLA e indicadores de remediação</p>
+    <p class="text-xs text-slate-500 mt-0.5">Calculando Risk Score, matriz CVSS, EOL, SLA e indicadores de remediação</p>
   </div>
 
   <!-- CONTAINER DE ERRO -->
@@ -282,18 +285,18 @@
     <section class="border-b border-slate-800 pb-3.5 mb-3.5 avoid-break">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="flex items-center space-x-3">
-          <div class="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center text-emerald-400 font-black text-lg shadow-sm border border-slate-700">
+          <div class="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center text-teal-400 font-extrabold text-lg shadow-sm border border-slate-700">
             GV
           </div>
           <div>
-            <div class="text-[8.5px] font-black uppercase tracking-widest text-emerald-700">GvulStand Security & Governance</div>
-            <h1 id="rep-title" class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-tight">Relatório Sumário de Gestão de Vulnerabilidades</h1>
-            <p class="text-[10.5px] text-slate-500 font-medium">Sumário executivo estratégico para tomada de decisão, governança e comitê de risco</p>
+            <div class="text-xs font-bold text-teal-800">GvulStand Security & Governance</div>
+            <h1 id="rep-title" class="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-normal">Relatório Sumário de Gestão de Vulnerabilidades</h1>
+            <p class="text-xs text-slate-500 font-medium">Sumário executivo estratégico para tomada de decisão, governança e comitê de risco</p>
           </div>
         </div>
 
         <div class="text-right flex flex-col items-start sm:items-end">
-          <span id="rep-classification" class="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black tracking-wider uppercase bg-amber-50 text-amber-800 border border-amber-300">
+          <span id="rep-classification" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold tracking-wider uppercase bg-amber-50 text-amber-800 border border-amber-300">
             CONFIDENCIAL // USO INTERNO
           </span>
         </div>
@@ -302,27 +305,27 @@
       <!-- GRID DE METADADOS COMPLETOS -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
         <div>
-          <span class="block text-[9px] font-bold uppercase tracking-wider text-slate-400">Período de Análise / Ciclo:</span>
-          <span id="rep-period" class="font-bold text-slate-800 text-[11px] font-mono break-words">-</span>
+          <span class="block text-xs font-bold uppercase tracking-wider text-slate-500">Período de Análise / Ciclo:</span>
+          <span id="rep-period" class="font-bold text-slate-800 text-xs font-mono break-words">-</span>
         </div>
         <div>
-          <span class="block text-[9px] font-bold uppercase tracking-wider text-slate-400">Data de Emissão:</span>
-          <span id="rep-emission-date" class="font-bold text-slate-800 text-[11px] font-mono break-words">-</span>
+          <span class="block text-xs font-bold uppercase tracking-wider text-slate-500">Data de Emissão:</span>
+          <span id="rep-emission-date" class="font-bold text-slate-800 text-xs font-mono break-words">-</span>
         </div>
         <div>
-          <span class="block text-[9px] font-bold uppercase tracking-wider text-slate-400">Escopo da Cobertura:</span>
-          <span id="rep-scope" class="font-bold text-slate-800 text-[11px] break-words leading-tight">-</span>
+          <span class="block text-xs font-bold uppercase tracking-wider text-slate-500">Escopo da Cobertura:</span>
+          <span id="rep-scope" class="font-bold text-slate-800 text-xs break-words leading-normal">-</span>
         </div>
         <div>
-          <span class="block text-[9px] font-bold uppercase tracking-wider text-slate-400">Equipe Emissora / Responsável:</span>
-          <span id="rep-team" class="font-bold text-slate-800 text-[11px] truncate leading-tight">-</span>
+          <span class="block text-xs font-bold uppercase tracking-wider text-slate-500">Equipe Emissora / Responsável:</span>
+          <span id="rep-team" class="font-bold text-slate-800 text-xs truncate leading-normal">-</span>
         </div>
       </div>
 
       <!-- NOTA DE AUDITORIA / ESCOPO CASO APLICÁVEL -->
       <div id="rep-notes-alert" class="hidden mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start space-x-2">
         <i data-lucide="info" class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5"></i>
-        <div id="rep-notes-text" class="leading-snug text-[10.5px]"></div>
+        <div id="rep-notes-text" class="leading-snug text-xs"></div>
       </div>
     </section>
 
@@ -333,11 +336,11 @@
     <section class="mb-4 avoid-break">
       <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 shadow-sm">
         <div class="flex items-center justify-between mb-1.5">
-          <span class="text-[10px] font-black uppercase tracking-wider text-emerald-800 flex items-center space-x-1.5">
+          <span class="text-xs font-bold text-emerald-800 flex items-center space-x-1.5">
             <i data-lucide="activity" class="w-3.5 h-3.5 text-emerald-600"></i>
             <span>Parecer Executivo & Postura de Segurança</span>
           </span>
-          <span id="rep-exec-badge" class="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+          <span id="rep-exec-badge" class="px-2 py-0.5 rounded text-xs font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
             Ambiente Monitorado
           </span>
         </div>
@@ -349,20 +352,20 @@
         <!-- LINHA 1: INDICADORES ESTRATÉGICOS -->
         <div class="grid grid-cols-2 sm:grid-cols-4 print-grid-4 gap-2 mt-2.5 pt-2.5 border-t border-slate-200 text-center">
           <div class="p-2 rounded-lg bg-white border border-slate-200 shadow-2xs">
-            <span class="text-[9px] text-slate-500 block uppercase font-bold">Exposição de Superfície</span>
-            <span id="pill-exposure-rate" class="text-sm font-black font-mono text-amber-600">0%</span>
+            <span class="text-xs text-slate-500 block uppercase font-bold">Exposição de Superfície</span>
+            <span id="pill-exposure-rate" class="text-sm font-extrabold font-mono text-amber-600">0%</span>
           </div>
           <div class="p-2 rounded-lg bg-white border border-slate-200 shadow-2xs">
-            <span class="text-[9px] text-slate-500 block uppercase font-bold">Vulnerabilidades c/ Exploit Público</span>
-            <span id="pill-exploit-count" class="text-sm font-black font-mono text-purple-600">0</span>
+            <span class="text-xs text-slate-500 block font-bold">Vulnerabilidades c/ Exploit Público</span>
+            <span id="pill-exploit-count" class="text-sm font-extrabold font-mono text-purple-600">0</span>
           </div>
           <div class="p-2 rounded-lg bg-white border border-slate-200 shadow-2xs">
-            <span class="text-[9px] text-slate-500 block uppercase font-bold">Conformidade SLA</span>
-            <span id="pill-sla-rate" class="text-sm font-black font-mono text-emerald-600">100%</span>
+            <span class="text-xs text-slate-500 block uppercase font-bold">Conformidade SLA</span>
+            <span id="pill-sla-rate" class="text-sm font-extrabold font-mono text-emerald-600">100%</span>
           </div>
           <div class="p-2 rounded-lg bg-white border border-slate-200 shadow-2xs">
-            <span class="text-[9px] text-slate-500 block uppercase font-bold">Sistemas em EOL</span>
-            <span id="pill-eol-count" class="text-sm font-black font-mono text-rose-600">0</span>
+            <span class="text-xs text-slate-500 block uppercase font-bold">Sistemas em EOL</span>
+            <span id="pill-eol-count" class="text-sm font-extrabold font-mono text-rose-600">0</span>
           </div>
         </div>
 
@@ -371,41 +374,41 @@
           <div class="p-2 rounded-lg bg-rose-50/70 border border-rose-200 shadow-2xs">
             <div class="flex items-center justify-center space-x-1 mb-0.5">
               <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-              <span class="text-[9px] text-rose-800 uppercase font-bold">Críticas</span>
+              <span class="text-xs text-rose-800 uppercase font-bold">Críticas</span>
             </div>
             <div class="flex items-baseline justify-center space-x-1">
-              <span id="pill-crit-count" class="text-sm font-black font-mono text-rose-700">0</span>
-              <span id="pill-crit-pct" class="text-[9px] text-rose-600 font-mono">(0%)</span>
+              <span id="pill-crit-count" class="text-sm font-extrabold font-mono text-rose-700">0</span>
+              <span id="pill-crit-pct" class="text-xs text-rose-600 font-mono">(0%)</span>
             </div>
           </div>
           <div class="p-2 rounded-lg bg-orange-50/70 border border-orange-200 shadow-2xs">
             <div class="flex items-center justify-center space-x-1 mb-0.5">
               <span class="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-              <span class="text-[9px] text-orange-800 uppercase font-bold">Altas</span>
+              <span class="text-xs text-orange-800 uppercase font-bold">Altas</span>
             </div>
             <div class="flex items-baseline justify-center space-x-1">
-              <span id="pill-high-count" class="text-sm font-black font-mono text-orange-700">0</span>
-              <span id="pill-high-pct" class="text-[9px] text-orange-600 font-mono">(0%)</span>
+              <span id="pill-high-count" class="text-sm font-extrabold font-mono text-orange-700">0</span>
+              <span id="pill-high-pct" class="text-xs text-orange-600 font-mono">(0%)</span>
             </div>
           </div>
           <div class="p-2 rounded-lg bg-amber-50/70 border border-amber-200 shadow-2xs">
             <div class="flex items-center justify-center space-x-1 mb-0.5">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-              <span class="text-[9px] text-amber-800 uppercase font-bold">Médias</span>
+              <span class="text-xs text-amber-800 uppercase font-bold">Médias</span>
             </div>
             <div class="flex items-baseline justify-center space-x-1">
-              <span id="pill-med-count" class="text-sm font-black font-mono text-amber-700">0</span>
-              <span id="pill-med-pct" class="text-[9px] text-amber-600 font-mono">(0%)</span>
+              <span id="pill-med-count" class="text-sm font-extrabold font-mono text-amber-700">0</span>
+              <span id="pill-med-pct" class="text-xs text-amber-600 font-mono">(0%)</span>
             </div>
           </div>
           <div class="p-2 rounded-lg bg-emerald-50/70 border border-emerald-200 shadow-2xs">
             <div class="flex items-center justify-center space-x-1 mb-0.5">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span class="text-[9px] text-emerald-800 uppercase font-bold">Baixas</span>
+              <span class="text-xs text-emerald-800 uppercase font-bold">Baixas</span>
             </div>
             <div class="flex items-baseline justify-center space-x-1">
-              <span id="pill-low-count" class="text-sm font-black font-mono text-emerald-700">0</span>
-              <span id="pill-low-pct" class="text-[9px] text-emerald-600 font-mono">(0%)</span>
+              <span id="pill-low-count" class="text-sm font-extrabold font-mono text-emerald-700">0</span>
+              <span id="pill-low-pct" class="text-xs text-emerald-600 font-mono">(0%)</span>
             </div>
           </div>
         </div>
@@ -418,45 +421,45 @@
     <section class="mb-4 avoid-break">
       <div class="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-2.5">
         <div class="flex items-center space-x-2">
-          <span class="w-4 h-4 rounded bg-emerald-100 text-emerald-800 text-[9px] font-black flex items-center justify-center">2</span>
-          <h2 class="text-xs font-black text-slate-900 uppercase tracking-tight">Visão Geral do Ambiente (O Inventário)</h2>
+          <span class="w-4 h-4 rounded bg-emerald-100 text-emerald-800 text-xs font-extrabold flex items-center justify-center">2</span>
+          <h2 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Visão Geral do Ambiente (O Inventário)</h2>
         </div>
-        <span class="text-[9px] text-slate-400 font-mono">Superfície de Ataque Mapeada</span>
+        <span class="text-xs text-slate-400 font-mono">Superfície de Ataque Mapeada</span>
       </div>
 
       <!-- KPI METRICS INVENTÁRIO (4 CARDS COMPACTOS) -->
       <div class="grid grid-cols-2 sm:grid-cols-4 print-grid-4 gap-2 mb-2.5">
         <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-          <span class="text-[8.5px] font-bold uppercase tracking-wider text-slate-400 block">Total de Hosts Mapeados</span>
-          <div id="inv-total-hosts" class="text-lg font-black text-slate-900 font-mono">0</div>
-          <span class="text-[8.5px] text-slate-500 block">Dispositivos no escopo</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 block">Total de Hosts Mapeados</span>
+          <div id="inv-total-hosts" class="text-lg font-extrabold text-slate-900 font-mono">0</div>
+          <span class="text-xs text-slate-500 block">Dispositivos no escopo</span>
         </div>
 
         <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-          <span class="text-[8.5px] font-bold uppercase tracking-wider text-slate-400 block">Ativos Respondendo</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 block">Ativos Respondendo</span>
           <div class="flex items-baseline space-x-1.5">
-            <span id="inv-active-hosts" class="text-lg font-black text-emerald-600 font-mono">0</span>
-            <span id="inv-active-pct" class="text-[9px] font-bold text-emerald-700">(100%)</span>
+            <span id="inv-active-hosts" class="text-lg font-extrabold text-emerald-600 font-mono">0</span>
+            <span id="inv-active-pct" class="text-xs font-bold text-emerald-700">(100%)</span>
           </div>
-          <span id="inv-inactive-text" class="text-[8.5px] text-slate-500 block">0 inativos / sem resposta</span>
+          <span id="inv-inactive-text" class="text-xs text-slate-500 block">0 inativos / sem resposta</span>
         </div>
 
         <div class="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200">
-          <span class="text-[8.5px] font-bold uppercase tracking-wider text-amber-800 block">Sistemas em Fim de Vida (EOL)</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-amber-800 block">Sistemas em Fim de Vida (EOL)</span>
           <div class="flex items-baseline space-x-1.5">
-            <span id="inv-eol-hosts" class="text-lg font-black text-amber-700 font-mono">0</span>
-            <span id="inv-eol-pct" class="text-[9px] font-bold text-amber-800">(0%)</span>
+            <span id="inv-eol-hosts" class="text-lg font-extrabold text-amber-700 font-mono">0</span>
+            <span id="inv-eol-pct" class="text-xs font-bold text-amber-800">(0%)</span>
           </div>
-          <span class="text-[8.5px] text-amber-700 font-medium block">Risco de descontinuação</span>
+          <span class="text-xs text-amber-700 font-medium block">Risco de descontinuação</span>
         </div>
 
         <div class="p-2.5 rounded-xl bg-rose-50/70 border border-rose-200">
-          <span class="text-[8.5px] font-bold uppercase tracking-wider text-rose-800 block">Hosts em Risco Imediato</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-rose-800 block">Hosts em Risco Imediato</span>
           <div class="flex items-baseline space-x-1.5">
-            <span id="inv-crit-hosts" class="text-lg font-black text-rose-700 font-mono">0</span>
-            <span id="inv-crit-hosts-pct" class="text-[9px] font-bold text-rose-800">(0%)</span>
+            <span id="inv-crit-hosts" class="text-lg font-extrabold text-rose-700 font-mono">0</span>
+            <span id="inv-crit-hosts-pct" class="text-xs font-bold text-rose-800">(0%)</span>
           </div>
-          <span class="text-[8.5px] text-rose-700 font-medium block">Hosts c/ Críticas ou Exploits</span>
+          <span class="text-xs text-rose-700 font-medium block">Hosts c/ Críticas ou Exploits</span>
         </div>
       </div>
 
@@ -466,15 +469,15 @@
         <div class="md:col-span-5 print-col-5 bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex flex-col justify-between">
           <div>
             <div class="flex items-center justify-between mb-1">
-              <span class="text-[10px] font-bold text-slate-700">Distribuição de Plataformas / SO</span>
-              <span class="text-[8.5px] text-slate-400 font-mono">Volume por SO</span>
+              <span class="text-xs font-bold text-slate-700">Distribuição de Plataformas / SO</span>
+              <span class="text-xs text-slate-400 font-mono">Volume por SO</span>
             </div>
             <div class="w-full h-44 chart-box-os relative">
               <canvas id="chart-os"></canvas>
             </div>
           </div>
           <!-- Legenda de cores do ciclo de vida -->
-          <div class="flex items-center justify-center space-x-2.5 mt-1 text-[8px] text-slate-500 border-t border-slate-200/60 pt-1">
+          <div class="flex items-center justify-center space-x-2.5 mt-1 text-xs text-slate-500 border-t border-slate-200/60 pt-1">
             <span class="flex items-center space-x-1"><span class="w-2 h-2 rounded-xs bg-emerald-500 inline-block"></span><span>Suportado</span></span>
             <span class="flex items-center space-x-1"><span class="w-2 h-2 rounded-xs bg-rose-500 inline-block"></span><span>EOL</span></span>
             <span class="flex items-center space-x-1"><span class="w-2 h-2 rounded-xs bg-amber-500 inline-block"></span><span>Próx. EOL</span></span>
@@ -485,7 +488,7 @@
         <!-- Tabela de SOs com destaque de EOL (7 Colunas) -->
         <div class="md:col-span-7 print-col-7 overflow-x-auto flex flex-col justify-between">
           <table class="w-full text-left text-xs border border-slate-200 rounded-lg overflow-hidden">
-            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[9px] uppercase">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-xs uppercase">
               <tr>
                 <th class="py-1 px-2">Sistema Operacional</th>
                 <th class="py-1 px-2 text-center w-12">Hosts</th>
@@ -493,7 +496,7 @@
                 <th class="py-1 px-2 text-right">Ciclo de Vida (Suporte)</th>
               </tr>
             </thead>
-            <tbody id="rep-os-tbody" class="divide-y divide-slate-200 text-[10px]">
+            <tbody id="rep-os-tbody" class="divide-y divide-slate-200 text-xs">
               <!-- JS rendered -->
             </tbody>
           </table>
@@ -501,7 +504,7 @@
           <!-- ALERTA EOL NOTA -->
           <div id="eol-warning-banner" class="hidden mt-1.5 p-1.5 rounded-lg bg-rose-50 border border-rose-200 flex items-start space-x-2">
             <i data-lucide="alert-octagon" class="w-3.5 h-3.5 text-rose-600 flex-shrink-0 mt-0.5"></i>
-            <p class="text-[8.5px] text-rose-800 leading-snug">
+            <p class="text-xs text-rose-800 leading-snug">
               <strong>Atenção ao Risco Sistêmico EOL:</strong> Os sistemas destacados em vermelho não recebem mais patches oficiais de segurança. Recomenda-se plano imediato de migração ou isolamento em zonas de rede segmentadas (DMZ/VLAN restrita).
             </p>
           </div>
@@ -516,10 +519,10 @@
     <section class="mb-4 avoid-break">
       <div class="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-2.5">
         <div class="flex items-center space-x-2">
-          <span class="w-4 h-4 rounded bg-emerald-100 text-emerald-800 text-[9px] font-black flex items-center justify-center">3</span>
-          <h2 class="text-xs font-black text-slate-900 uppercase tracking-tight">Sumário Executivo de Riscos & Matriz de Severidade</h2>
+          <span class="w-4 h-4 rounded bg-emerald-100 text-emerald-800 text-xs font-extrabold flex items-center justify-center">3</span>
+          <h2 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Sumário Executivo de Riscos & Matriz de Severidade</h2>
         </div>
-        <span class="text-[9px] text-slate-400 font-mono">Termômetro de Risco & CVSS v3</span>
+        <span class="text-xs text-slate-400 font-mono">Termômetro de Risco & CVSS v3</span>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-12 print-grid-12 gap-2.5 items-stretch">
@@ -529,38 +532,38 @@
           <!-- Card Risk Score Global (FUNDO CLARO LIMPO) -->
           <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 shadow-2xs flex items-center justify-between">
             <div>
-              <span class="text-[8.5px] font-black uppercase tracking-widest text-emerald-800">Risk Score Global</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-emerald-800">Risk Score Global</span>
               <div class="flex items-baseline space-x-2 mt-0.5">
-                <span id="risk-score-value" class="text-2xl sm:text-3xl font-black font-mono text-slate-900">0.0</span>
-                <span id="risk-score-level-badge" class="px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Baixo</span>
+                <span id="risk-score-value" class="text-2xl sm:text-3xl font-extrabold font-mono text-slate-900">0.0</span>
+                <span id="risk-score-level-badge" class="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Baixo</span>
               </div>
-              <p class="text-[8.5px] text-slate-500 mt-0.5">Pontuação ponderada CVSS / EPSS por host ativo</p>
+              <p class="text-xs text-slate-500 mt-0.5">Pontuação ponderada CVSS / EPSS por host ativo</p>
             </div>
             <div class="text-right">
-              <span class="text-[8.5px] text-slate-400 uppercase block font-bold">Densidade Crítica</span>
-              <span id="risk-density-val" class="text-xl font-black font-mono text-amber-600">0.0</span>
-              <span class="text-[8.5px] text-slate-400 block">vulnerabilidades / host</span>
+              <span class="text-xs text-slate-400 uppercase block font-bold">Densidade Crítica</span>
+              <span id="risk-density-val" class="text-xl font-extrabold font-mono text-amber-600">0.0</span>
+              <span class="text-xs text-slate-400 block">vulnerabilidades / host</span>
             </div>
           </div>
 
           <!-- Tendência e Volume -->
           <div class="grid grid-cols-2 print-grid-2 gap-2">
             <div class="p-2 rounded-xl bg-slate-50 border border-slate-200">
-              <span class="text-[8px] font-bold uppercase tracking-wider text-slate-400 block">Evolução do Risco</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 block">Evolução do Risco</span>
               <div id="risk-trend-indicator" class="flex items-center space-x-1 mt-0.5">
-                <span id="risk-trend-arrow" class="w-3.5 h-3.5 rounded flex items-center justify-center font-black text-[10px] bg-slate-200 text-slate-700">•</span>
-                <span id="risk-trend-title" class="text-[10px] font-black text-slate-800 truncate">Baseline</span>
+                <span id="risk-trend-arrow" class="w-3.5 h-3.5 rounded flex items-center justify-center font-extrabold text-xs bg-slate-200 text-slate-700">•</span>
+                <span id="risk-trend-title" class="text-xs font-bold text-slate-800 truncate">Baseline</span>
               </div>
-              <p id="risk-trend-desc" class="text-[8px] text-slate-500 mt-0.5 leading-tight truncate">Ciclo inicial de referência.</p>
+              <p id="risk-trend-desc" class="text-xs text-slate-500 mt-0.5 leading-normal truncate">Ciclo inicial de referência.</p>
             </div>
 
             <div class="p-2 rounded-xl bg-slate-50 border border-slate-200">
-              <span class="text-[8px] font-bold uppercase tracking-wider text-slate-400 block">Volume Total</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 block">Volume Total</span>
               <div class="flex items-baseline space-x-1 mt-0.5">
-                <span id="vuln-total-occurrences" class="text-sm font-black text-slate-900 font-mono">0</span>
-                <span class="text-[8px] text-slate-400 font-bold">totais</span>
+                <span id="vuln-total-occurrences" class="text-sm font-extrabold text-slate-900 font-mono">0</span>
+                <span class="text-xs text-slate-400 font-bold">totais</span>
               </div>
-              <p id="vuln-unique-ratio" class="text-[8px] text-slate-500 mt-0.5 truncate">0 únicas (1.0x)</p>
+              <p id="vuln-unique-ratio" class="text-xs text-slate-500 mt-0.5 truncate">0 únicas (1.0x)</p>
             </div>
           </div>
 
@@ -571,13 +574,13 @@
                 <i data-lucide="skull" class="w-3 h-3"></i>
               </div>
               <div>
-                <span class="text-[10px] font-bold text-purple-900 block">Exploits Conhecidos Públicos</span>
-                <span class="text-[8px] text-purple-700">Métrica de armamento (Metasploit/PoC)</span>
+                <span class="text-xs font-bold text-purple-900 block">Exploits Conhecidos Públicos</span>
+                <span class="text-xs text-purple-700">Métrica de armamento (Metasploit/PoC)</span>
               </div>
             </div>
             <div class="text-right">
-              <span id="sev-exploits-count" class="text-base font-black text-purple-900 font-mono">0</span>
-              <span id="sev-exploits-pct" class="text-[8px] font-bold text-purple-700 block">(0%)</span>
+              <span id="sev-exploits-count" class="text-base font-extrabold text-purple-900 font-mono">0</span>
+              <span id="sev-exploits-pct" class="text-xs font-bold text-purple-700 block">(0%)</span>
             </div>
           </div>
         </div>
@@ -589,8 +592,8 @@
             <!-- Gráfico de Barras Matriz CVSS v3 -->
             <div class="sm:col-span-5 print-col-5 flex flex-col justify-between">
               <div class="flex items-center justify-between mb-1">
-                <span class="text-[10px] font-bold text-slate-700">Matriz CVSS v3</span>
-                <span class="text-[8.5px] text-slate-400 font-mono">Por Severidade</span>
+                <span class="text-xs font-bold text-slate-700">Matriz CVSS v3</span>
+                <span class="text-xs text-slate-400 font-mono">Por Severidade</span>
               </div>
               <div class="w-full h-36 chart-box-sev relative">
                 <canvas id="chart-severity"></canvas>
@@ -599,8 +602,8 @@
 
             <!-- Tabela de Severidade -->
             <div class="sm:col-span-7 print-col-7 overflow-x-auto">
-              <table class="w-full text-left border border-slate-200 rounded-lg overflow-hidden text-[10px]">
-                <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[8.5px] uppercase">
+              <table class="w-full text-left border border-slate-200 rounded-lg overflow-hidden text-xs">
+                <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-xs uppercase">
                   <tr>
                     <th class="py-1 px-1.5">Severidade</th>
                     <th class="py-1 px-1.5 text-center">Achados</th>
@@ -616,7 +619,7 @@
                     </td>
                     <td id="sev-crit-count" class="py-1 px-1.5 text-center font-bold font-mono">0</td>
                     <td id="sev-crit-pct" class="py-1 px-1.5 text-center font-mono">0%</td>
-                    <td class="py-1 px-1.5 text-[9px] text-slate-500">Patch Emergencial (SLA 7d)</td>
+                    <td class="py-1 px-1.5 text-xs text-slate-500">Patch Emergencial (SLA 7d)</td>
                   </tr>
                   <tr>
                     <td class="py-1 px-1.5 font-bold text-orange-600 flex items-center space-x-1">
@@ -625,7 +628,7 @@
                     </td>
                     <td id="sev-high-count" class="py-1 px-1.5 text-center font-bold font-mono">0</td>
                     <td id="sev-high-pct" class="py-1 px-1.5 text-center font-mono">0%</td>
-                    <td class="py-1 px-1.5 text-[9px] text-slate-500">Remediação Prioritária (SLA 15d)</td>
+                    <td class="py-1 px-1.5 text-xs text-slate-500">Remediação Prioritária (SLA 15d)</td>
                   </tr>
                   <tr>
                     <td class="py-1 px-1.5 font-bold text-amber-600 flex items-center space-x-1">
@@ -634,7 +637,7 @@
                     </td>
                     <td id="sev-med-count" class="py-1 px-1.5 text-center font-bold font-mono">0</td>
                     <td id="sev-med-pct" class="py-1 px-1.5 text-center font-mono">0%</td>
-                    <td class="py-1 px-1.5 text-[9px] text-slate-500">Planejamento em Ciclo (SLA 30d)</td>
+                    <td class="py-1 px-1.5 text-xs text-slate-500">Planejamento em Ciclo (SLA 30d)</td>
                   </tr>
                   <tr>
                     <td class="py-1 px-1.5 font-bold text-emerald-600 flex items-center space-x-1">
@@ -643,7 +646,7 @@
                     </td>
                     <td id="sev-low-count" class="py-1 px-1.5 text-center font-bold font-mono">0</td>
                     <td id="sev-low-pct" class="py-1 px-1.5 text-center font-mono">0%</td>
-                    <td class="py-1 px-1.5 text-[9px] text-slate-500">Hardening & Defesa (SLA 60d)</td>
+                    <td class="py-1 px-1.5 text-xs text-slate-500">Hardening & Defesa (SLA 60d)</td>
                   </tr>
                 </tbody>
               </table>
@@ -659,24 +662,24 @@
     <section class="mb-4 avoid-break page-break-before">
       <div class="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-2.5">
         <div class="flex items-center space-x-2">
-          <span class="w-4 h-4 rounded bg-emerald-100 text-emerald-800 text-[9px] font-black flex items-center justify-center">4</span>
-          <h2 class="text-xs font-black text-slate-900 uppercase tracking-tight">Destaques e Top 5 Críticos (Ações Prioritárias)</h2>
+          <span class="w-4 h-4 rounded bg-emerald-100 text-emerald-800 text-xs font-extrabold flex items-center justify-center">4</span>
+          <h2 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Destaques e Top 5 Críticos (Ações Prioritárias)</h2>
         </div>
-        <span class="text-[9px] text-slate-400 font-mono">Concentração de Risco & Quick Wins</span>
+        <span class="text-xs text-slate-400 font-mono">Concentração de Risco & Quick Wins</span>
       </div>
 
       <!-- 4.1 TOP 5 HOSTS MAIS VULNERÁVEIS -->
       <div class="mb-3">
         <div class="flex items-center justify-between mb-1">
-          <span class="text-[9.5px] font-bold uppercase tracking-wider text-slate-700 flex items-center space-x-1.5">
+          <span class="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
             <i data-lucide="server" class="w-3.5 h-3.5 text-emerald-600"></i>
             <span>Top 5 Hosts com Maior Densidade de Risco</span>
           </span>
-          <span class="text-[8.5px] text-slate-400">Priorizar mitigação imediata</span>
+          <span class="text-xs text-slate-500">Priorizar mitigação imediata</span>
         </div>
         <div class="overflow-x-auto">
-          <table class="w-full text-left border border-slate-200 rounded-lg overflow-hidden text-[10.5px]">
-            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[8.5px] uppercase">
+          <table class="w-full text-left border border-slate-200 rounded-lg overflow-hidden text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-xs uppercase">
               <tr>
                 <th class="py-1 px-1.5 w-7 text-center">#</th>
                 <th class="py-1 px-1.5">Host / IP</th>
@@ -699,15 +702,15 @@
       <!-- 4.2 TOP 5 VULNERABILIDADES MAIS FREQUENTES -->
       <div>
         <div class="flex items-center justify-between mb-1">
-          <span class="text-[9.5px] font-bold uppercase tracking-wider text-slate-700 flex items-center space-x-1.5">
+          <span class="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
             <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500"></i>
             <span>Top 5 Vulnerabilidades Críticas e Altas Mais Frequentes (Maior Ganho em Escala / Quick Wins)</span>
           </span>
-          <span class="text-[8.5px] text-slate-400">Correção em massa</span>
+          <span class="text-xs text-slate-500">Correção em massa</span>
         </div>
         <div class="overflow-x-auto">
-          <table class="w-full text-left border border-slate-200 rounded-lg overflow-hidden text-[10.5px]">
-            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[8.5px] uppercase">
+          <table class="w-full text-left border border-slate-200 rounded-lg overflow-hidden text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-xs uppercase">
               <tr>
                 <th class="py-1 px-1.5 w-7 text-center">#</th>
                 <th class="py-1 px-1.5">Plugin / Vulnerabilidade</th>
@@ -731,46 +734,46 @@
     <section class="mb-4 avoid-break">
       <div class="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-2.5">
         <div class="flex items-center space-x-2">
-          <span class="w-4 h-4 rounded bg-emerald-100 text-emerald-800 text-[9px] font-black flex items-center justify-center">5</span>
-          <h2 class="text-xs font-black text-slate-900 uppercase tracking-tight">Indicadores de Desempenho e Remediação (SLA, MTTR & Churn)</h2>
+          <span class="w-4 h-4 rounded bg-emerald-100 text-emerald-800 text-xs font-extrabold flex items-center justify-center">5</span>
+          <h2 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Indicadores de Desempenho e Remediação (SLA, MTTR & Churn)</h2>
         </div>
-        <span class="text-[9px] text-slate-400 font-mono">Conformidade ISO 27001 Controles A.8.8</span>
+        <span class="text-xs text-slate-400 font-mono">Conformidade ISO 27001 Controles A.8.8</span>
       </div>
 
       <!-- CARDS SLA E MTTR -->
       <div class="grid grid-cols-1 sm:grid-cols-3 print-grid-3 gap-2 mb-2.5">
         <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-          <span class="text-[8.5px] font-bold uppercase tracking-wider text-slate-400 block">Conformidade com SLA</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 block">Conformidade com SLA</span>
           <div class="flex items-baseline space-x-1.5 mt-0.5">
-            <span id="sla-compliance-rate" class="text-lg font-black text-emerald-600 font-mono">100%</span>
-            <span class="text-[9px] text-slate-500">no prazo</span>
+            <span id="sla-compliance-rate" class="text-lg font-extrabold text-emerald-600 font-mono">100%</span>
+            <span class="text-xs text-slate-500">no prazo</span>
           </div>
-          <span id="sla-meeting-ratio" class="text-[8.5px] text-slate-500">0 vulnerabilidades no limite estabelecido</span>
+          <span id="sla-meeting-ratio" class="text-xs text-slate-500">0 vulnerabilidades no limite estabelecido</span>
         </div>
 
         <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-          <span class="text-[8.5px] font-bold uppercase tracking-wider text-slate-400 block">MTTR Médio Geral</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 block">MTTR Médio Geral</span>
           <div class="flex items-baseline space-x-1.5 mt-0.5">
-            <span id="sla-mttr-overall" class="text-lg font-black text-slate-900 font-mono">0.0</span>
-            <span class="text-[9px] font-bold text-slate-500">dias</span>
+            <span id="sla-mttr-overall" class="text-lg font-extrabold text-slate-900 font-mono">0.0</span>
+            <span class="text-xs font-bold text-slate-500">dias</span>
           </div>
-          <span class="text-[8.5px] text-slate-500">Mean Time to Remediation</span>
+          <span class="text-xs text-slate-500">Mean Time to Remediation</span>
         </div>
 
         <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-          <span class="text-[8.5px] font-bold uppercase tracking-wider text-slate-400 block">Churn: Recorrentes vs Novas</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 block">Churn: Recorrentes vs Novas</span>
           <div class="flex items-baseline space-x-2.5 mt-0.5">
             <div>
-              <span id="sla-recurring-count" class="text-sm font-black text-amber-600 font-mono">0</span>
-              <span class="text-[7.5px] font-bold text-slate-400 block uppercase">Reincidentes</span>
+              <span id="sla-recurring-count" class="text-sm font-extrabold text-amber-600 font-mono">0</span>
+              <span class="text-xs font-bold text-slate-400 block uppercase">Reincidentes</span>
             </div>
             <div class="border-l border-slate-300 pl-2">
-              <span id="sla-new-count" class="text-sm font-black text-blue-600 font-mono">0</span>
-              <span class="text-[7.5px] font-bold text-slate-400 block uppercase">Novas</span>
+              <span id="sla-new-count" class="text-sm font-extrabold text-blue-600 font-mono">0</span>
+              <span class="text-xs font-bold text-slate-400 block uppercase">Novas</span>
             </div>
             <div class="border-l border-slate-300 pl-2">
-              <span id="sla-remediated-count" class="text-sm font-black text-emerald-600 font-mono">0</span>
-              <span class="text-[7.5px] font-bold text-slate-400 block uppercase">Corrigidas</span>
+              <span id="sla-remediated-count" class="text-sm font-extrabold text-emerald-600 font-mono">0</span>
+              <span class="text-xs font-bold text-slate-400 block uppercase">Corrigidas</span>
             </div>
           </div>
         </div>
@@ -778,8 +781,8 @@
 
       <!-- MTTR POR SEVERIDADE E ADERÊNCIA AO SLA -->
       <div class="overflow-x-auto">
-        <table class="w-full text-left border border-slate-200 rounded-lg overflow-hidden text-[10.5px]">
-          <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[8.5px] uppercase">
+        <table class="w-full text-left border border-slate-200 rounded-lg overflow-hidden text-xs">
+          <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-xs uppercase">
             <tr>
               <th class="py-1 px-2">Criticidade</th>
               <th class="py-1 px-2 text-center">MTTR Médio Observado</th>
@@ -796,7 +799,7 @@
               <td id="sla-crit-meeting" class="py-1 px-2 text-center font-mono">0</td>
               <td id="sla-crit-not-meeting" class="py-1 px-2 text-center font-mono text-rose-600">0</td>
               <td id="sla-crit-rate" class="py-1 px-2 text-center font-mono font-bold text-emerald-600">100%</td>
-              <td class="py-1 px-2 text-right"><span class="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-emerald-100 text-emerald-800">Conforme</span></td>
+              <td class="py-1 px-2 text-right"><span class="px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">Conforme</span></td>
             </tr>
             <tr>
               <td class="py-1 px-2 font-bold text-orange-600">Alta</td>
@@ -804,7 +807,7 @@
               <td id="sla-high-meeting" class="py-1 px-2 text-center font-mono">0</td>
               <td id="sla-high-not-meeting" class="py-1 px-2 text-center font-mono text-rose-600">0</td>
               <td id="sla-high-rate" class="py-1 px-2 text-center font-mono font-bold text-emerald-600">100%</td>
-              <td class="py-1 px-2 text-right"><span class="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-emerald-100 text-emerald-800">Conforme</span></td>
+              <td class="py-1 px-2 text-right"><span class="px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">Conforme</span></td>
             </tr>
             <tr>
               <td class="py-1 px-2 font-bold text-amber-600">Média</td>
@@ -812,7 +815,7 @@
               <td id="sla-med-meeting" class="py-1 px-2 text-center font-mono">0</td>
               <td id="sla-med-not-meeting" class="py-1 px-2 text-center font-mono text-rose-600">0</td>
               <td id="sla-med-rate" class="py-1 px-2 text-center font-mono font-bold text-emerald-600">100%</td>
-              <td class="py-1 px-2 text-right"><span class="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-emerald-100 text-emerald-800">Conforme</span></td>
+              <td class="py-1 px-2 text-right"><span class="px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">Conforme</span></td>
             </tr>
             <tr>
               <td class="py-1 px-2 font-bold text-emerald-600">Baixa</td>
@@ -820,7 +823,7 @@
               <td id="sla-low-meeting" class="py-1 px-2 text-center font-mono">0</td>
               <td id="sla-low-not-meeting" class="py-1 px-2 text-center font-mono text-rose-600">0</td>
               <td id="sla-low-rate" class="py-1 px-2 text-center font-mono font-bold text-emerald-600">100%</td>
-              <td class="py-1 px-2 text-right"><span class="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-emerald-100 text-emerald-800">Conforme</span></td>
+              <td class="py-1 px-2 text-right"><span class="px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">Conforme</span></td>
             </tr>
           </tbody>
         </table>
@@ -833,20 +836,20 @@
     <footer class="border-t-2 border-slate-800 pt-3.5 mt-4 avoid-break">
       <div class="grid grid-cols-3 gap-4 text-center mt-2">
         <div class="border-t border-slate-300 pt-1.5">
-          <span id="sign-team-name" class="text-[10.5px] font-bold text-slate-800 block truncate">Equipe de Segurança da Informação / SOC</span>
-          <span class="text-[8.5px] text-slate-500 block">Emissão Técnica & Coleta de Evidências</span>
+          <span id="sign-team-name" class="text-xs font-bold text-slate-800 block truncate">Equipe de Segurança da Informação / SOC</span>
+          <span class="text-xs text-slate-500 block">Emissão Técnica & Coleta de Evidências</span>
         </div>
         <div class="border-t border-slate-300 pt-1.5">
-          <span class="text-[10.5px] font-bold text-slate-800 block">Gerente de Segurança da Informação (CISO)</span>
-          <span class="text-[8.5px] text-slate-500 block">Revisão Estratégica & Validação de Risco</span>
+          <span class="text-xs font-bold text-slate-800 block">Gerente de Segurança da Informação (CISO)</span>
+          <span class="text-xs text-slate-500 block">Revisão Estratégica & Validação de Risco</span>
         </div>
         <div class="border-t border-slate-300 pt-1.5">
-          <span class="text-[10.5px] font-bold text-slate-800 block">Diretoria de TI & Governança Corporativa</span>
-          <span class="text-[8.5px] text-slate-500 block">Aprovação Executiva & Ciclo PDCA</span>
+          <span class="text-xs font-bold text-slate-800 block">Diretoria de TI & Governança Corporativa</span>
+          <span class="text-xs text-slate-500 block">Aprovação Executiva & Ciclo PDCA</span>
         </div>
       </div>
 
-      <div class="text-center text-[8.5px] text-slate-400 mt-3.5 leading-tight">
+      <div class="text-center text-xs text-slate-500 mt-3.5 leading-normal">
         GvulStand • Relatório gerado automaticamente através da consolidação de varreduras Tenable Nessus.
         Documento auditável em conformidade com as normas ABNT NBR ISO/IEC 27001:2022, ISO 9001 e CIS Controls v8.
       </div>
@@ -968,11 +971,11 @@
       // Estilo dinâmico da classificação
       const classifBadge = document.getElementById('rep-classification');
       if (finalClassif.includes('RED') || finalClassif.includes('RESTRITO')) {
-        classifBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black tracking-wider uppercase bg-rose-50 text-rose-800 border border-rose-300';
+        classifBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-bold tracking-wider uppercase bg-rose-50 text-rose-800 border border-rose-300';
       } else if (finalClassif.includes('GREEN') || finalClassif.includes('CLEAR') || finalClassif.includes('PÚBLICO')) {
-        classifBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black tracking-wider uppercase bg-emerald-50 text-emerald-800 border border-emerald-300';
+        classifBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-bold tracking-wider uppercase bg-emerald-50 text-emerald-800 border border-emerald-300';
       } else {
-        classifBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black tracking-wider uppercase bg-amber-50 text-amber-800 border border-amber-300';
+        classifBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-bold tracking-wider uppercase bg-amber-50 text-amber-800 border border-amber-300';
       }
 
       // Notas de Auditoria / Escopo
@@ -1005,13 +1008,13 @@
       const execBadge = document.getElementById('rep-exec-badge');
       if (risk.organization_risk_score >= 120) {
         execBadge.textContent = 'Atenção Imediata';
-        execBadge.className = 'px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-rose-100 text-rose-800 border border-rose-300';
+        execBadge.className = 'px-2 py-0.5 rounded text-xs font-extrabold uppercase bg-rose-100 text-rose-800 border border-rose-300';
       } else if (risk.organization_risk_score >= 60) {
         execBadge.textContent = 'Risco Elevado';
-        execBadge.className = 'px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-amber-100 text-amber-800 border border-amber-300';
+        execBadge.className = 'px-2 py-0.5 rounded text-xs font-extrabold uppercase bg-amber-100 text-amber-800 border border-amber-300';
       } else {
         execBadge.textContent = 'Ambiente Saudável';
-        execBadge.className = 'px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300';
+        execBadge.className = 'px-2 py-0.5 rounded text-xs font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300';
       }
 
       // 2. Inventário
@@ -1050,7 +1053,7 @@
             <td class="py-1 px-2 text-center font-bold font-mono">${os.count}</td>
             <td class="py-1 px-2 text-center font-mono">${os.percentage}%</td>
             <td class="py-1 px-2 text-right">
-              <span class="inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold border ${badgeClass}">
+              <span class="inline-block px-1.5 py-0.5 rounded text-xs font-bold border ${badgeClass}">
                 ${escapeHtml(os.eol_status)}
               </span>
             </td>
@@ -1068,11 +1071,11 @@
       levelBadge.textContent = risk.risk_level || 'Baixo';
 
       if (risk.organization_risk_score >= 120) {
-        levelBadge.className = 'px-2 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-300';
+        levelBadge.className = 'px-2 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300';
       } else if (risk.organization_risk_score >= 60) {
-        levelBadge.className = 'px-2 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300';
+        levelBadge.className = 'px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300';
       } else {
-        levelBadge.className = 'px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300';
+        levelBadge.className = 'px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300';
       }
 
       document.getElementById('risk-density-val').textContent = (risk.critical_density || 0.0).toFixed(1);
@@ -1083,21 +1086,21 @@
       const trendDesc = document.getElementById('risk-trend-desc');
 
       if (risk.risk_trend_direction === 'down') {
-        arrowEl.className = 'w-4 h-4 rounded flex items-center justify-center font-black text-xs bg-emerald-100 text-emerald-700';
+        arrowEl.className = 'w-4 h-4 rounded flex items-center justify-center font-extrabold text-xs bg-emerald-100 text-emerald-700';
         arrowEl.textContent = '↓';
-        trendTitle.className = 'text-[11px] font-black text-emerald-700 truncate';
+        trendTitle.className = 'text-xs font-bold text-emerald-700 truncate';
         trendTitle.textContent = `Redução de ${risk.risk_trend_percentage}%`;
         trendDesc.textContent = risk.risk_trend_text;
       } else if (risk.risk_trend_direction === 'up') {
-        arrowEl.className = 'w-4 h-4 rounded flex items-center justify-center font-black text-xs bg-rose-100 text-rose-700';
+        arrowEl.className = 'w-4 h-4 rounded flex items-center justify-center font-extrabold text-xs bg-rose-100 text-rose-700';
         arrowEl.textContent = '↑';
-        trendTitle.className = 'text-[11px] font-black text-rose-700 truncate';
+        trendTitle.className = 'text-xs font-bold text-rose-700 truncate';
         trendTitle.textContent = `Aumento de ${risk.risk_trend_percentage}%`;
         trendDesc.textContent = risk.risk_trend_text;
       } else {
-        arrowEl.className = 'w-4 h-4 rounded flex items-center justify-center font-black text-xs bg-slate-200 text-slate-700';
+        arrowEl.className = 'w-4 h-4 rounded flex items-center justify-center font-extrabold text-xs bg-slate-200 text-slate-700';
         arrowEl.textContent = '•';
-        trendTitle.className = 'text-[11px] font-black text-slate-800 truncate';
+        trendTitle.className = 'text-xs font-bold text-slate-800 truncate';
         trendTitle.textContent = 'Estável / Baseline';
         trendDesc.textContent = risk.risk_trend_text;
       }
@@ -1136,11 +1139,11 @@
             <td class="py-1 px-1.5 font-mono font-bold text-slate-900">${escapeHtml(h.ip_address)}</td>
             <td class="py-1 px-1.5 text-slate-700">${escapeHtml(h.hostname || '-')}</td>
             <td class="py-1 px-1.5 text-slate-500">${escapeHtml(h.asset_group_name || '-')}</td>
-            <td class="py-1 px-1.5 text-slate-600 text-[9.5px]">${escapeHtml(h.os || '-')}</td>
+            <td class="py-1 px-1.5 text-slate-600 text-xs">${escapeHtml(h.os || '-')}</td>
             <td class="py-1 px-1.5 text-center font-bold font-mono text-rose-600">${h.critical_count}</td>
             <td class="py-1 px-1.5 text-center font-bold font-mono text-orange-600">${h.high_count}</td>
             <td class="py-1 px-1.5 text-center font-bold font-mono text-purple-600">${h.exploitable_count}</td>
-            <td class="py-1 px-1.5 text-right font-black font-mono text-slate-900">${(h.risk_score || 0).toFixed(1)}</td>
+            <td class="py-1 px-1.5 text-right font-extrabold font-mono text-slate-900">${(h.risk_score || 0).toFixed(1)}</td>
           `;
           topHostsTbody.appendChild(tr);
         });
@@ -1157,38 +1160,38 @@
           const sevColor = v.severity === 'Critical' ? 'text-rose-700 bg-rose-50 border-rose-300' : 'text-orange-700 bg-orange-50 border-orange-300';
           
           // Formatação compacta e segura de CVEs (quando há centenas de CVEs)
-          let cveContent = '<span class="text-slate-400 font-mono text-[9px]">N/A</span>';
+          let cveContent = '<span class="text-slate-400 font-mono text-xs">N/A</span>';
           if (v.cve && v.cve !== 'N/A') {
             const cveList = v.cve.split(/[\s,]+/).filter(c => c.trim().length > 0);
             if (cveList.length > 3) {
               const firstThree = cveList.slice(0, 3).join(', ');
               const extra = cveList.length - 3;
               cveContent = `
-                <div class="font-mono text-[9px] text-slate-700 font-medium" title="${escapeHtml(v.cve)}">
+                <div class="font-mono text-xs text-slate-700 font-medium" title="${escapeHtml(v.cve)}">
                   <span>${escapeHtml(firstThree)}</span>
-                  <span class="inline-block ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-bold text-[8px]">+${extra} CVEs</span>
+                  <span class="inline-block ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-bold text-xs">+${extra} CVEs</span>
                 </div>
               `;
             } else {
-              cveContent = `<span class="font-mono text-[9px] text-slate-700 font-medium">${escapeHtml(cveList.join(', '))}</span>`;
+              cveContent = `<span class="font-mono text-xs text-slate-700 font-medium">${escapeHtml(cveList.join(', '))}</span>`;
             }
           }
 
           tr.innerHTML = `
             <td class="py-1 px-1.5 text-center font-bold text-slate-400 font-mono">#${v.rank}</td>
             <td class="py-1 px-1.5">
-              <span class="font-bold text-slate-900 block leading-tight text-[10.5px]">${escapeHtml(v.plugin_name)}</span>
-              <span class="text-[8.5px] text-slate-400 font-mono">Plugin ID: ${v.plugin_id}</span>
+              <span class="font-bold text-slate-900 block leading-normal text-xs">${escapeHtml(v.plugin_name)}</span>
+              <span class="text-xs text-slate-400 font-mono">Plugin ID: ${v.plugin_id}</span>
             </td>
             <td class="py-1 px-1.5 max-w-[180px]">${cveContent}</td>
             <td class="py-1 px-1.5 text-center">
-              <span class="inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold border ${sevColor}">${v.severity}</span>
+              <span class="inline-block px-1.5 py-0.5 rounded text-xs font-bold border ${sevColor}">${v.severity}</span>
             </td>
             <td class="py-1 px-1.5 text-center">
               <span class="font-bold font-mono text-slate-900">${v.affected_hosts_count}</span>
-              <span class="text-[8.5px] text-slate-400 block font-mono">(${v.affected_hosts_percent}%)</span>
+              <span class="text-xs text-slate-400 block font-mono">(${v.affected_hosts_percent}%)</span>
             </td>
-            <td class="py-1 px-1.5 text-slate-600 text-[9.5px] leading-tight max-w-[280px]">${escapeHtml(v.solution || 'Aplicar patches oficiais do fabricante.')}</td>
+            <td class="py-1 px-1.5 text-slate-600 text-xs leading-normal max-w-[280px]">${escapeHtml(v.solution || 'Aplicar patches oficiais do fabricante.')}</td>
           `;
           topVulnsTbody.appendChild(tr);
         });

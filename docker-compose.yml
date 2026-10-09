@@ -37,8 +37,6 @@ services:
       - DEFAULT_ADMIN_USERNAME=${DEFAULT_ADMIN_USERNAME:-Admin}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin}
       - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@gvulstand.local}
-    #ports:
-      #- "${APP_PORT:-8000}:8000"
     volumes:
       - ./data/uploads:/app/data/uploads
       - ./frontend:/app/frontend

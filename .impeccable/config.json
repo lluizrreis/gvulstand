@@ -1,0 +1,26 @@
+{
+  "buildPath": "code",
+  "detector": {
+    "ignoreRules": [
+      "ai-color-palette",
+      "nested-cards"
+    ],
+    "ignoreFiles": [
+      "frontend/public/css/tailwind.min.css"
+    ],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "plus jakarta sans",
+        "createdAt": "2026-10-08T18:53:11.230Z",
+        "reason": "Brand font defined in DESIGN.md as Creative North Star"
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-10-08T18:53:11.358Z",
+        "reason": "Secondary fallback font defined in DESIGN.md"
+      }
+    ]
+  }
+}

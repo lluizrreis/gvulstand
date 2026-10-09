@@ -42,7 +42,7 @@
         margin: 0 !important;
         padding: 0 !important;
         font-size: 8pt !important;
-        line-height: 1.25 !important;
+        line-height: 1.4 !important;
       }
       .report-container {
         max-width: 100% !important;
@@ -53,25 +53,28 @@
         border: none !important;
         border-radius: 0 !important;
       }
-      /* Redução e uniformização rigorosa das fontes em impressão */
-      h1, h2 { font-size: 10.5pt !important; line-height: 1.2 !important; }
-      h3, h4 { font-size: 9pt !important; line-height: 1.2 !important; }
-      p, td, th, span, div, li {
+      /* Hierarquia tipográfica para impressão A4 */
+      h1 { font-size: 16px !important; line-height: 1.25 !important; font-weight: 800 !important; }
+      h2 { font-size: 10.5pt !important; line-height: 1.3 !important; font-weight: 700 !important; }
+      h3, h4 { font-size: 9.5pt !important; line-height: 1.3 !important; font-weight: 600 !important; }
+      h1 span, h2 span, h3 span, h4 span { font-size: inherit !important; line-height: inherit !important; }
+      p, td, th, li {
         font-size: 7.8pt !important;
-        line-height: 1.25 !important;
+        line-height: 1.4 !important;
       }
       .font-mono {
         font-size: 7.2pt !important;
+        font-variant-numeric: tabular-nums lining-nums !important;
       }
       /* Caixa de saída Nessus em fundo claro limpo - ZERO FUNDO ESCURO */
       .plugin-output-box {
         font-size: 7.2pt !important;
-        line-height: 1.2 !important;
+        line-height: 1.3 !important;
         background-color: #f8fafc !important;
         color: #1e293b !important;
         border: 1px solid #cbd5e1 !important;
         padding: 4px 6px !important;
-        border-radius: 4px !important;
+        border-radius: 8px !important;
         white-space: pre-wrap !important;
         word-break: break-all !important;
         max-height: none !important;
@@ -86,7 +89,7 @@
         page-break-inside: auto !important;
         border: 1px solid #94a3b8 !important;
         margin-bottom: 8px !important;
-        border-radius: 6px !important;
+        border-radius: 8px !important;
       }
       .host-card-header {
         break-inside: avoid !important;
@@ -99,7 +102,7 @@
         page-break-inside: avoid !important;
         border: 1px solid #cbd5e1 !important;
         margin-bottom: 5px !important;
-        border-radius: 4px !important;
+        border-radius: 8px !important;
       }
       table {
         page-break-inside: auto;
@@ -141,7 +144,7 @@
     }
     .custom-scroll::-webkit-scrollbar-thumb {
       background-color: #94a3b8;
-      border-radius: 3px;
+      border-radius: 8px;
     }
     .custom-scroll::-webkit-scrollbar-track {
       background-color: #f1f5f9;
@@ -156,12 +159,12 @@
   <header class="no-print sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-800 text-white px-6 py-2.5 shadow-md">
     <div class="max-w-[1400px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
       <div class="flex items-center space-x-3">
-        <div class="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold">
+        <div class="w-8 h-8 rounded-lg bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-teal-400 font-bold">
           <i data-lucide="file-code" class="w-4 h-4"></i>
         </div>
         <div>
-          <h1 class="text-xs font-bold tracking-tight">GvulStand • Relatório Técnico de Vulnerabilidades & Hosts</h1>
-          <p class="text-[10px] text-slate-400">Dossiê Estruturado para Infraestrutura, Sustentação e DevOps</p>
+          <div class="text-xs font-bold tracking-tight">GvulStand • Relatório Técnico de Vulnerabilidades & Hosts</div>
+          <p class="text-xs text-slate-400">Dossiê Estruturado para Infraestrutura, Sustentação e DevOps</p>
         </div>
       </div>
 
@@ -169,7 +172,7 @@
         <!-- Filtro Rápido de Severidade -->
         <div class="flex items-center space-x-1.5 bg-slate-800/90 px-2.5 py-1 rounded-lg border border-slate-700 text-xs">
           <i data-lucide="filter" class="w-3 h-3 text-slate-400"></i>
-          <span class="text-[11px] text-slate-300 font-semibold">Severidade:</span>
+          <span class="text-xs text-slate-300 font-semibold">Severidade:</span>
           <select id="filter-severity" onchange="filterVulnerabilities()" style="color-scheme: dark;" class="bg-slate-800 text-white text-xs font-medium focus:outline-none cursor-pointer">
             <option value="all" class="bg-slate-900 text-white">Todas Acionáveis</option>
             <option value="Critical" class="bg-slate-900 text-rose-400 font-bold">Apenas Críticas</option>
@@ -222,7 +225,7 @@
   <div id="report-loading" class="flex flex-col items-center justify-center min-h-[70vh] p-8">
     <div class="w-10 h-10 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
     <p class="mt-3 text-sm font-semibold text-slate-700">Consolidando dossiê técnico de vulnerabilidades...</p>
-    <p class="text-xs text-slate-400 mt-0.5">Carregando inventário de hosts, portas, CVEs, saídas de plugins Nessus e planos de ação</p>
+    <p class="text-xs text-slate-500 mt-0.5">Carregando inventário de hosts, portas, CVEs, saídas de plugins Nessus e planos de ação</p>
   </div>
 
   <!-- CONTAINER DE ERRO -->
@@ -249,20 +252,20 @@
     <section class="border-b border-slate-800 pb-3.5 mb-3.5 avoid-break">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="flex items-center space-x-3">
-          <div class="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center text-blue-400 font-black text-lg shadow-sm border border-slate-700">
+          <div class="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center text-teal-400 font-extrabold text-lg shadow-sm border border-slate-700">
             GV
           </div>
           <div>
-            <div class="text-[8.5px] font-black uppercase tracking-widest text-blue-700">GvulStand Security & Infrastructure Dossier</div>
-            <h2 id="meta-title" class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-tight">
+            <div class="text-xs font-bold text-teal-800">GvulStand Security & Infrastructure Dossier</div>
+            <h2 id="meta-title" class="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-normal">
               Relatório Técnico Detalhado de Vulnerabilidades & Hosts
             </h2>
-            <p class="text-[10.5px] text-slate-500 font-medium">Dossiê ativo por ativo: portas TCP/UDP, CVEs, evidências técnicas e planos de ação</p>
+            <p class="text-xs text-slate-500 font-medium">Dossiê ativo por ativo: portas TCP/UDP, CVEs, evidências técnicas e planos de ação</p>
           </div>
         </div>
 
         <div class="flex flex-col items-start sm:items-end">
-          <span id="meta-classification" class="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black tracking-wider uppercase bg-amber-50 text-amber-800 border border-amber-300">
+          <span id="meta-classification" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold tracking-wider uppercase bg-amber-50 text-amber-800 border border-amber-300">
             CONFIDENCIAL // USO INTERNO
           </span>
         </div>
@@ -271,28 +274,28 @@
       <!-- GRID DE METADADOS EXECUTIVOS / OPERACIONAIS -->
       <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
         <div>
-          <span class="text-[9px] font-bold uppercase text-slate-400 block">Escopo / Grupo:</span>
-          <span id="meta-scope" class="font-bold text-slate-800 break-words text-[11px]">-</span>
+          <span class="text-xs font-bold uppercase text-slate-500 block">Escopo / Grupo:</span>
+          <span id="meta-scope" class="font-bold text-slate-800 break-words text-xs">-</span>
         </div>
         <div>
-          <span class="text-[9px] font-bold uppercase text-slate-400 block">Ciclo de Varredura:</span>
-          <span id="meta-period" class="font-bold text-slate-800 text-[11px]">-</span>
+          <span class="text-xs font-bold uppercase text-slate-500 block">Ciclo de Varredura:</span>
+          <span id="meta-period" class="font-bold text-slate-800 text-xs">-</span>
         </div>
         <div>
-          <span class="text-[9px] font-bold uppercase text-slate-400 block">Data de Emissão:</span>
-          <span id="meta-date" class="font-bold text-slate-800 font-mono text-[11px]">-</span>
+          <span class="text-xs font-bold uppercase text-slate-500 block">Data de Emissão:</span>
+          <span id="meta-date" class="font-bold text-slate-800 font-mono text-xs">-</span>
         </div>
         <div>
-          <span class="text-[9px] font-bold uppercase text-slate-400 block">Equipe Responsável:</span>
-          <span id="meta-team" class="font-bold text-slate-800 truncate text-[11px]">-</span>
+          <span class="text-xs font-bold uppercase text-slate-500 block">Equipe Responsável:</span>
+          <span id="meta-team" class="font-bold text-slate-800 truncate text-xs">-</span>
         </div>
         <div>
-          <span class="text-[9px] font-bold uppercase text-slate-400 block">Emissor do Laudo:</span>
-          <span id="meta-generated-by" class="font-medium text-slate-700 text-[11px]">-</span>
+          <span class="text-xs font-bold uppercase text-slate-500 block">Emissor do Laudo:</span>
+          <span id="meta-generated-by" class="font-medium text-slate-700 text-xs">-</span>
         </div>
         <div class="col-span-1 sm:col-span-3">
-          <span class="text-[9px] font-bold uppercase text-slate-400 block">Scans de Referência (.nessus):</span>
-          <span id="meta-scans" class="font-mono text-[10px] text-slate-700 break-words">-</span>
+          <span class="text-xs font-bold uppercase text-slate-500 block">Scans de Referência (.nessus):</span>
+          <span id="meta-scans" class="font-mono text-xs text-slate-700 break-words">-</span>
         </div>
       </div>
 
@@ -300,7 +303,7 @@
       <div id="meta-notes-container" class="hidden mt-2 p-2 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800">
         <div class="flex items-center space-x-1.5">
           <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-amber-600 flex-shrink-0"></i>
-          <span id="meta-notes-text" class="font-medium text-[11px]"></span>
+          <span id="meta-notes-text" class="font-medium text-xs"></span>
         </div>
       </div>
     </section>
@@ -310,55 +313,55 @@
     <!-- ==================================================== -->
     <section class="mb-4 avoid-break">
       <div class="flex items-center justify-between mb-2">
-        <h3 class="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center space-x-1.5">
+        <h3 class="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
           <i data-lucide="bar-chart-3" class="w-3.5 h-3.5 text-blue-600"></i>
           <span>Resumo Técnico de Exposição & Superfície</span>
         </h3>
-        <span class="text-[9.5px] font-semibold text-slate-500" id="summary-badge-counts">0 hosts avaliados</span>
+        <span class="text-xs font-semibold text-slate-500" id="summary-badge-counts">0 hosts avaliados</span>
       </div>
 
       <!-- CARDS DE METRICAS CHAVE -->
       <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         <!-- Total Hosts -->
         <div class="p-2 bg-slate-50 rounded-lg border border-slate-200 text-center">
-          <span class="text-[8.5px] font-extrabold uppercase tracking-wider text-slate-400 block">Hosts</span>
-          <span id="stat-total-hosts" class="text-base font-black text-slate-900 font-mono">0</span>
+          <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500 block">Hosts</span>
+          <span id="stat-total-hosts" class="text-base font-extrabold text-slate-900 font-mono">0</span>
         </div>
 
         <!-- Total Vulns -->
         <div class="p-2 bg-slate-50 rounded-lg border border-slate-200 text-center">
-          <span class="text-[8.5px] font-extrabold uppercase tracking-wider text-slate-400 block">Acionáveis</span>
-          <span id="stat-total-vulns" class="text-base font-black text-slate-900 font-mono">0</span>
+          <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500 block">Acionáveis</span>
+          <span id="stat-total-vulns" class="text-base font-extrabold text-slate-900 font-mono">0</span>
         </div>
 
         <!-- Críticas -->
         <div class="p-2 bg-rose-50/70 rounded-lg border border-rose-200 text-center">
-          <span class="text-[8.5px] font-extrabold uppercase tracking-wider text-rose-700 block">Críticas</span>
-          <span id="stat-crit-count" class="text-base font-black text-rose-600 font-mono">0</span>
+          <span class="text-xs font-extrabold uppercase tracking-wider text-rose-700 block">Críticas</span>
+          <span id="stat-crit-count" class="text-base font-extrabold text-rose-600 font-mono">0</span>
         </div>
 
         <!-- Altas -->
         <div class="p-2 bg-orange-50/70 rounded-lg border border-orange-200 text-center">
-          <span class="text-[8.5px] font-extrabold uppercase tracking-wider text-orange-700 block">Altas</span>
-          <span id="stat-high-count" class="text-base font-black text-orange-600 font-mono">0</span>
+          <span class="text-xs font-extrabold uppercase tracking-wider text-orange-700 block">Altas</span>
+          <span id="stat-high-count" class="text-base font-extrabold text-orange-600 font-mono">0</span>
         </div>
 
         <!-- Médias -->
         <div class="p-2 bg-amber-50/70 rounded-lg border border-amber-200 text-center">
-          <span class="text-[8.5px] font-extrabold uppercase tracking-wider text-amber-700 block">Médias</span>
-          <span id="stat-med-count" class="text-base font-black text-amber-600 font-mono">0</span>
+          <span class="text-xs font-extrabold uppercase tracking-wider text-amber-700 block">Médias</span>
+          <span id="stat-med-count" class="text-base font-extrabold text-amber-600 font-mono">0</span>
         </div>
 
         <!-- Baixas -->
         <div class="p-2 bg-blue-50/70 rounded-lg border border-blue-200 text-center">
-          <span class="text-[8.5px] font-extrabold uppercase tracking-wider text-blue-700 block">Baixas</span>
-          <span id="stat-low-count" class="text-base font-black text-blue-600 font-mono">0</span>
+          <span class="text-xs font-extrabold uppercase tracking-wider text-blue-700 block">Baixas</span>
+          <span id="stat-low-count" class="text-base font-extrabold text-blue-600 font-mono">0</span>
         </div>
 
         <!-- Exploits -->
         <div class="p-2 bg-purple-50/70 rounded-lg border border-purple-200 text-center">
-          <span class="text-[8.5px] font-extrabold uppercase tracking-wider text-purple-700 block">Com Exploit</span>
-          <span id="stat-exploits-count" class="text-base font-black text-purple-600 font-mono flex items-center justify-center space-x-0.5">
+          <span class="text-xs font-extrabold uppercase tracking-wider text-purple-700 block">Com Exploit</span>
+          <span id="stat-exploits-count" class="text-base font-extrabold text-purple-600 font-mono flex items-center justify-center space-x-0.5">
             <i data-lucide="zap" class="w-3 h-3 text-purple-600 inline"></i>
             <span id="stat-exploits-val">0</span>
           </span>
@@ -367,25 +370,25 @@
 
       <!-- SUB-BARRA: RISK SCORES & TOP PORTAS -->
       <div class="mt-2 p-2 bg-slate-50 border border-slate-200 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
-        <div class="flex items-center space-x-3 text-[11px]">
+        <div class="flex items-center space-x-3 text-xs">
           <div>
-            <span class="text-[9px] text-slate-400 font-bold uppercase">Risk Score Médio:</span>
-            <span id="stat-avg-risk" class="font-black text-slate-800 font-mono ml-1">0.0</span>
+            <span class="text-xs text-slate-500 font-bold uppercase">Risk Score Médio:</span>
+            <span id="stat-avg-risk" class="font-extrabold text-slate-800 font-mono ml-1">0.0</span>
           </div>
           <div>
-            <span class="text-[9px] text-slate-400 font-bold uppercase">Risk Score Máximo:</span>
-            <span id="stat-max-risk" class="font-black text-rose-600 font-mono ml-1">0.0</span>
+            <span class="text-xs text-slate-500 font-bold uppercase">Risk Score Máximo:</span>
+            <span id="stat-max-risk" class="font-extrabold text-rose-600 font-mono ml-1">0.0</span>
           </div>
         </div>
 
         <!-- Portas Mais Afetadas -->
-        <div class="flex items-center space-x-1.5 text-[11px]">
-          <span class="text-[9px] font-bold uppercase text-slate-400 flex items-center space-x-1">
+        <div class="flex items-center space-x-1.5 text-xs">
+          <span class="text-xs font-bold uppercase text-slate-500 flex items-center space-x-1">
             <i data-lucide="network" class="w-3 h-3 text-slate-500"></i>
             <span>Top Portas:</span>
           </span>
           <div id="top-ports-container" class="flex flex-wrap gap-1">
-            <span class="text-slate-400 text-[10px]">Nenhuma</span>
+            <span class="text-slate-500 text-xs">Nenhuma</span>
           </div>
         </div>
       </div>
@@ -402,24 +405,24 @@
     <div id="no-hosts-message" class="hidden p-6 text-center bg-slate-50 border border-slate-200 rounded-xl my-4">
       <i data-lucide="shield-alert" class="w-8 h-8 text-slate-400 mx-auto mb-1.5"></i>
       <h4 class="text-xs font-bold text-slate-700">Nenhum host ou vulnerabilidade encontrada no escopo</h4>
-      <p class="text-[11px] text-slate-500 mt-0.5">Verifique os filtros selecionados ou importe varreduras na aba Scans.</p>
+      <p class="text-xs text-slate-500 mt-0.5">Verifique os filtros selecionados ou importe varreduras na aba Scans.</p>
     </div>
 
     <!-- ==================================================== -->
     <!-- RODAPÉ TÉCNICO & TRILHA DE AUDITORIA                -->
     <!-- ==================================================== -->
-    <footer class="mt-6 pt-3 border-t border-slate-800 text-[9px] text-slate-500 avoid-break">
+    <footer class="mt-6 pt-3 border-t border-slate-800 text-xs text-slate-500 avoid-break">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
         <div class="flex items-center space-x-1.5">
           <span class="font-bold text-slate-800">GvulStand • Vulnerability Management Platform</span>
           <span>•</span>
           <span>Emissão Técnica de Conformidade & Mitigação</span>
         </div>
-        <div class="font-mono text-[8.5px] text-slate-400">
+        <div class="font-mono text-xs text-slate-500">
           Gerado em: <span id="footer-gen-timestamp">-</span>
         </div>
       </div>
-      <div class="mt-0.5 text-slate-400 text-[8.5px]">
+      <div class="mt-0.5 text-slate-500 text-xs">
         Relatório técnico auditável para equipes de infraestrutura, redes e suporte. As soluções recomendadas devem ser testadas em ambiente de homologação antes da aplicação em produção.
       </div>
     </footer>
@@ -540,12 +543,12 @@
       const topPortsContainer = document.getElementById('top-ports-container');
       if (summary.top_ports && summary.top_ports.length > 0) {
         topPortsContainer.innerHTML = summary.top_ports.map(p => `
-          <span class="px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 font-mono text-[9px] font-bold">
+          <span class="px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 font-mono text-xs font-bold">
             ${p.port}/${p.protocol} <span class="text-slate-500 font-normal">(${p.count})</span>
           </span>
         `).join('');
       } else {
-        topPortsContainer.innerHTML = `<span class="text-slate-400 text-[9px]">Nenhuma porta aberta</span>`;
+        topPortsContainer.innerHTML = `<span class="text-slate-400 text-xs">Nenhuma porta aberta</span>`;
       }
 
       // 3. Renderização dos Dossiês de Hosts
@@ -586,19 +589,19 @@
             <!-- CABEÇALHO DO DOSSIÊ DO ATIVO (EVITA QUEBRA ISOLADA) -->
             <div class="host-card-header p-2.5 bg-slate-100/90 border-b border-slate-300 avoid-break flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div class="flex items-center space-x-2.5">
-                <div class="w-6 h-6 rounded bg-slate-800 text-white flex items-center justify-center font-black text-[10px] flex-shrink-0">
+                <div class="w-6 h-6 rounded bg-slate-800 text-white flex items-center justify-center font-extrabold text-xs flex-shrink-0">
                   #${idx + 1}
                 </div>
                 <div>
                   <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="font-mono text-sm font-black text-slate-900 tracking-tight">${h.ip_address}</span>
-                    ${h.hostname ? `<span class="px-1.5 py-0.2 rounded bg-blue-50 text-blue-800 border border-blue-200 text-[10.5px] font-bold">${escapeHtml(h.hostname)}</span>` : ''}
-                    ${h.netbios_name && h.netbios_name !== h.hostname ? `<span class="px-1 py-0.2 rounded bg-slate-200 text-slate-700 text-[9.5px] font-mono">${escapeHtml(h.netbios_name)}</span>` : ''}
-                    <span class="px-1.5 py-0.2 rounded bg-white text-slate-700 border border-slate-300 text-[10px] font-medium">
+                    <span class="font-mono text-sm font-extrabold text-slate-900 tracking-tight">${h.ip_address}</span>
+                    ${h.hostname ? `<span class="px-1.5 py-0.2 rounded bg-blue-50 text-blue-800 border border-blue-200 text-xs font-bold">${escapeHtml(h.hostname)}</span>` : ''}
+                    ${h.netbios_name && h.netbios_name !== h.hostname ? `<span class="px-1 py-0.2 rounded bg-slate-200 text-slate-700 text-xs font-mono">${escapeHtml(h.netbios_name)}</span>` : ''}
+                    <span class="px-1.5 py-0.2 rounded bg-white text-slate-700 border border-slate-300 text-xs font-medium">
                       ${escapeHtml(h.os || 'SO Não Identificado')}
                     </span>
                   </div>
-                  <div class="flex flex-wrap items-center gap-1.5 mt-0.5 text-[10px] text-slate-500">
+                  <div class="flex flex-wrap items-center gap-1.5 mt-0.5 text-xs text-slate-500">
                     <span><strong class="text-slate-700">Grupo:</strong> ${escapeHtml(h.asset_group_name)}</span>
                     <span>•</span>
                     <span><strong class="text-slate-700">Vulnerabilidades:</strong> ${h.total_actionable_vulns}</span>
@@ -608,36 +611,36 @@
 
               <!-- BADGES DE SEVERIDADE E RISK SCORE DO HOST -->
               <div class="flex flex-wrap items-center gap-1 self-start sm:self-auto">
-                <span class="px-2 py-0.5 rounded border text-[10.5px] font-black font-mono ${riskBadgeClass}">
+                <span class="px-2 py-0.5 rounded border text-xs font-extrabold font-mono ${riskBadgeClass}">
                   Risk: ${h.risk_score.toFixed(1)} (${riskLabel})
                 </span>
 
                 ${h.critical_count > 0 ? `
-                  <span class="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-300 text-[10px] font-bold">
+                  <span class="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-300 text-xs font-bold">
                     ${h.critical_count} Crítica${h.critical_count > 1 ? 's' : ''}
                   </span>
                 ` : ''}
 
                 ${h.high_count > 0 ? `
-                  <span class="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-300 text-[10px] font-bold">
+                  <span class="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-300 text-xs font-bold">
                     ${h.high_count} Alta${h.high_count > 1 ? 's' : ''}
                   </span>
                 ` : ''}
 
                 ${h.medium_count > 0 ? `
-                  <span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-300 text-[10px] font-bold">
+                  <span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-300 text-xs font-bold">
                     ${h.medium_count} Média${h.medium_count > 1 ? 's' : ''}
                   </span>
                 ` : ''}
 
                 ${h.low_count > 0 ? `
-                  <span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-300 text-[10px] font-bold">
+                  <span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-300 text-xs font-bold">
                     ${h.low_count} Baixa${h.low_count > 1 ? 's' : ''}
                   </span>
                 ` : ''}
 
                 ${h.exploits_count > 0 ? `
-                  <span class="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-300 text-[10px] font-bold flex items-center space-x-0.5">
+                  <span class="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-300 text-xs font-bold flex items-center space-x-0.5">
                     <i data-lucide="zap" class="w-2.5 h-2.5 text-purple-600"></i>
                     <span>${h.exploits_count} Exploit${h.exploits_count > 1 ? 's' : ''}</span>
                   </span>
@@ -662,7 +665,7 @@
     function renderVulnerabilitiesTable(vulns, hostId) {
       if (!vulns || vulns.length === 0) {
         return `
-          <div class="p-3 text-center text-[11px] text-slate-500 italic bg-white rounded border border-slate-200">
+          <div class="p-3 text-center text-xs text-slate-500 italic bg-white rounded border border-slate-200">
             Nenhuma vulnerabilidade crítica, alta, média ou baixa detectada neste ativo.
           </div>
         `;
@@ -671,7 +674,7 @@
       return vulns.map((v, i) => {
         // Badges de severidade
         let sevClass = 'bg-slate-100 text-slate-700 border-slate-300';
-        if (v.severity === 'Critical') sevClass = 'bg-rose-100 text-rose-800 border-rose-400 font-black';
+        if (v.severity === 'Critical') sevClass = 'bg-rose-100 text-rose-800 border-rose-400 font-extrabold';
         else if (v.severity === 'High') sevClass = 'bg-orange-100 text-orange-800 border-orange-400 font-extrabold';
         else if (v.severity === 'Medium') sevClass = 'bg-amber-100 text-amber-800 border-amber-400 font-bold';
         else if (v.severity === 'Low') sevClass = 'bg-blue-100 text-blue-800 border-blue-400 font-semibold';
@@ -681,7 +684,7 @@
         if (v.cve_list && v.cve_list.length > 0) {
           if (v.cve_list.length <= 8) {
             cvesHtml = v.cve_list.map(c => `
-              <span class="inline-block px-1.5 py-0.2 rounded bg-slate-100 text-slate-800 border border-slate-300 text-[10px] print:text-[7.2pt] font-mono font-bold mr-1 my-0.5">
+              <span class="inline-block px-1.5 py-0.2 rounded bg-slate-100 text-slate-800 border border-slate-300 text-xs print:text-[7.2pt] font-mono font-bold mr-1 my-0.5">
                 ${escapeHtml(c)}
               </span>
             `).join('');
@@ -689,21 +692,21 @@
             // Se houver dezenas/centenas de CVEs (ex: KB rollup Windows com 150 CVEs),
             // renderiza como texto mono fluido compacto sem inchar o layout
             cvesHtml = `
-              <div class="text-[10px] print:text-[7.2pt] font-mono text-slate-700 leading-normal">
+              <div class="text-xs print:text-[7.2pt] font-mono text-slate-700 leading-normal">
                 ${v.cve_list.map(c => escapeHtml(c)).join(', ')}
-                <span class="text-slate-400 font-sans text-[9px] font-bold ml-1">(${v.cve_list.length} CVEs)</span>
+                <span class="text-slate-400 font-sans text-xs font-bold ml-1">(${v.cve_list.length} CVEs)</span>
               </div>
             `;
           }
         } else if (v.cve && v.cve.trim()) {
-          cvesHtml = `<span class="inline-block px-1.5 py-0.2 rounded bg-slate-100 text-slate-800 border border-slate-300 text-[10px] print:text-[7.2pt] font-mono font-bold">${escapeHtml(v.cve)}</span>`;
+          cvesHtml = `<span class="inline-block px-1.5 py-0.2 rounded bg-slate-100 text-slate-800 border border-slate-300 text-xs print:text-[7.2pt] font-mono font-bold">${escapeHtml(v.cve)}</span>`;
         } else {
-          cvesHtml = `<span class="text-slate-400 italic text-[10px] print:text-[7.2pt]">Nenhuma CVE formal associada a este plugin Nessus.</span>`;
+          cvesHtml = `<span class="text-slate-400 italic text-xs print:text-[7.2pt]">Nenhuma CVE formal associada a este plugin Nessus.</span>`;
         }
 
         // Exploit tag
         const exploitTag = v.exploit_available
-          ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 border border-purple-300 text-[9px] print:text-[6.8pt] font-bold space-x-0.5 ml-1">
+          ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 border border-purple-300 text-xs print:text-[6.8pt] font-bold space-x-0.5 ml-1">
                <i data-lucide="zap" class="w-2.5 h-2.5 text-purple-700"></i>
                <span>Exploit</span>
              </span>`
@@ -721,17 +724,17 @@
         if (v.synopsis && v.synopsis.trim()) {
           evidenceParts.push(`
             <div class="mb-1.5 p-1.5 bg-slate-50 border border-slate-200 rounded">
-              <span class="text-blue-800 font-bold uppercase tracking-wider text-[8.5px] print:text-[6.8pt] block">Sinopse do Risco:</span>
-              <p class="text-slate-800 text-[10.5px] print:text-[7.5pt] leading-tight font-sans">${escapeHtml(v.synopsis)}</p>
+              <span class="text-teal-800 font-bold text-xs print:text-[6.8pt] block">Sinopse do Risco:</span>
+              <p class="text-slate-800 text-xs print:text-[7.5pt] leading-normal font-sans">${escapeHtml(v.synopsis)}</p>
             </div>
           `);
         }
 
         if (v.exploit_frameworks && v.exploit_frameworks.trim()) {
           evidenceParts.push(`
-            <div class="mb-1.5 p-1.5 bg-purple-50 border border-purple-200 rounded text-purple-900 text-[10px] print:text-[7.2pt]">
-              <span class="text-purple-800 font-bold uppercase tracking-wider text-[8.5px] print:text-[6.8pt] block">Vetores / Frameworks de Exploração:</span>
-              <p class="font-mono text-[10px] print:text-[7.2pt] font-semibold">${escapeHtml(v.exploit_frameworks)}</p>
+            <div class="mb-1.5 p-1.5 bg-purple-50 border border-purple-200 rounded text-purple-900 text-xs print:text-[7.2pt]">
+              <span class="text-purple-800 font-bold text-xs print:text-[6.8pt] block">Vetores / Frameworks de Exploração:</span>
+              <p class="font-mono text-xs print:text-[7.2pt] font-semibold">${escapeHtml(v.exploit_frameworks)}</p>
             </div>
           `);
         }
@@ -740,19 +743,19 @@
           evidenceParts.push(`
             <div>
               <div class="flex items-center justify-between no-print mb-0.5">
-                <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Saída Bruta do Plugin Nessus:</span>
-                <button type="button" onclick="copyOutputToClipboard('${detailId}', this)" class="px-1.5 py-0.2 rounded bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[9px] font-bold flex items-center space-x-0.5 transition cursor-pointer">
+                <span class="text-xs font-bold text-slate-700">Saída Bruta do Plugin Nessus:</span>
+                <button type="button" onclick="copyOutputToClipboard('${detailId}', this)" class="px-1.5 py-0.2 rounded bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold flex items-center space-x-0.5 transition cursor-pointer">
                   <i data-lucide="copy" class="w-2.5 h-2.5"></i>
                   <span>Copiar</span>
                 </button>
               </div>
-              <pre id="${detailId}" class="plugin-output-box p-2 bg-slate-50 text-slate-800 rounded border border-slate-300 font-mono text-[9.5px] print:text-[7.2pt] leading-tight select-all overflow-x-auto">${escapeHtml(v.plugin_output)}</pre>
+              <pre id="${detailId}" class="plugin-output-box p-2 bg-slate-50 text-slate-800 rounded border border-slate-300 font-mono text-xs print:text-[7.2pt] leading-normal select-all overflow-x-auto">${escapeHtml(v.plugin_output)}</pre>
             </div>
           `);
         }
 
         if (evidenceParts.length === 0) {
-          evidenceContent = `<span class="text-slate-400 italic text-[10px] print:text-[7.2pt]">Nenhuma evidência bruta registrada pelo scanner para este apontamento.</span>`;
+          evidenceContent = `<span class="text-slate-400 italic text-xs print:text-[7.2pt]">Nenhuma evidência bruta registrada pelo scanner para este apontamento.</span>`;
         } else {
           evidenceContent = evidenceParts.join('');
         }
@@ -760,7 +763,7 @@
         /* TABELA ESTRUTURADA COM COLGROUP E LARGURAS FIXAS (16%, 16%, 16%, 52%) */
         return `
           <div class="vuln-card border border-slate-300 rounded-lg overflow-hidden shadow-xs bg-white" data-severity="${v.severity}" data-plugin="${v.plugin_id}" data-name="${escapeHtml(v.plugin_name)}" data-cve="${escapeHtml(v.cve || '')}">
-            <table class="w-full text-left border-collapse table-fixed text-[11px] print:text-[7.8pt]">
+            <table class="w-full text-left border-collapse table-fixed text-xs print:text-[7.8pt]">
               <colgroup>
                 <col style="width: 16%;">
                 <col style="width: 16%;">
@@ -769,7 +772,7 @@
               </colgroup>
               <!-- LINHA 1: CABEÇALHOS BÁSICOS -->
               <thead>
-                <tr class="bg-slate-100 border-b border-slate-300 text-slate-700 text-[10px] print:text-[7.2pt] font-bold uppercase tracking-wider">
+                <tr class="bg-slate-100 border-b border-slate-300 text-slate-700 text-xs print:text-[7.2pt] font-bold uppercase tracking-wider">
                   <th class="p-1.5 border-r border-slate-300 text-center">Plugin ID</th>
                   <th class="p-1.5 border-r border-slate-300 text-center">Severidade</th>
                   <th class="p-1.5 border-r border-slate-300 text-center">Porta / Proto</th>
@@ -781,31 +784,31 @@
                 <tr class="border-b border-slate-300 bg-white">
                   <!-- Plugin ID -->
                   <td class="p-1.5 border-r border-slate-300 text-center font-mono font-bold text-slate-900 whitespace-nowrap align-middle">
-                    <span class="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 text-[10.5px] print:text-[7.5pt]">#${v.plugin_id}</span>
+                    <span class="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 text-xs print:text-[7.5pt]">#${v.plugin_id}</span>
                   </td>
 
                   <!-- Severidade -->
                   <td class="p-1.5 border-r border-slate-300 text-center whitespace-nowrap align-middle">
-                    <span class="inline-block px-2 py-0.5 rounded text-[10px] print:text-[7.2pt] uppercase border tracking-wider ${sevClass}">
+                    <span class="inline-block px-2 py-0.5 rounded text-xs print:text-[7.2pt] uppercase border tracking-wider ${sevClass}">
                       ${v.severity}
                     </span>
                   </td>
 
                   <!-- Porta / Proto -->
-                  <td class="p-1.5 border-r border-slate-300 text-center font-mono font-bold text-slate-800 whitespace-nowrap align-middle text-[10.5px] print:text-[7.5pt]">
+                  <td class="p-1.5 border-r border-slate-300 text-center font-mono font-bold text-slate-800 whitespace-nowrap align-middle text-xs print:text-[7.5pt]">
                     ${portStr}
                   </td>
 
                   <!-- Nome da Vulnerabilidade -->
                   <td class="p-1.5 pl-2.5 align-middle">
-                    <span class="font-bold text-slate-900 text-xs print:text-[8pt] leading-tight">${escapeHtml(v.plugin_name)}</span>
-                    ${v.cvss_v3 ? `<span class="ml-1 px-1 py-0.2 rounded bg-slate-800 text-white font-mono text-[9px] print:text-[6.8pt] font-bold whitespace-nowrap">CVSS v3: ${v.cvss_v3}</span>` : ''}
+                    <span class="font-bold text-slate-900 text-xs print:text-[8pt] leading-normal">${escapeHtml(v.plugin_name)}</span>
+                    ${v.cvss_v3 ? `<span class="ml-1 px-1 py-0.2 rounded bg-slate-800 text-white font-mono text-xs print:text-[6.8pt] font-bold whitespace-nowrap">CVSS v3: ${v.cvss_v3}</span>` : ''}
                     ${exploitTag}
                   </td>
                 </tr>
 
                 <!-- LINHA 3: CABEÇALHO CVE -->
-                <tr class="bg-slate-100 border-b border-slate-300 text-slate-700 text-[10px] print:text-[7.2pt] font-bold uppercase tracking-wider">
+                <tr class="bg-slate-100 border-b border-slate-300 text-slate-700 text-xs print:text-[7.2pt] font-bold uppercase tracking-wider">
                   <td colspan="4" class="py-1 px-2">CVE</td>
                 </tr>
 
@@ -818,17 +821,17 @@
 
                 <!-- LINHA 5: SOLUÇÃO RECOMENDADA -->
                 <tr class="border-b border-slate-300 bg-white">
-                  <td class="p-2 bg-slate-50 border-r border-slate-300 font-bold text-slate-800 align-top text-[10.5px] print:text-[7.5pt] whitespace-nowrap">
+                  <td class="p-2 bg-slate-50 border-r border-slate-300 font-bold text-slate-800 align-top text-xs print:text-[7.5pt] whitespace-nowrap">
                     Solução Recomendada
                   </td>
-                  <td colspan="3" class="p-2 text-slate-800 leading-relaxed align-top text-[11px] print:text-[7.8pt]">
+                  <td colspan="3" class="p-2 text-slate-800 leading-relaxed align-top text-xs print:text-[7.8pt]">
                     ${v.solution ? escapeHtml(v.solution) : '<span class="text-slate-400 italic">Nenhuma recomendação específica cadastrada no plugin Nessus.</span>'}
                   </td>
                 </tr>
 
                 <!-- LINHA 6: EVIDÊNCIA / PLUGIN OUTPUT -->
                 <tr class="evidence-row bg-white">
-                  <td class="p-2 bg-slate-50 border-r border-slate-300 font-bold text-slate-800 align-top text-[10.5px] print:text-[7.5pt] whitespace-nowrap">
+                  <td class="p-2 bg-slate-50 border-r border-slate-300 font-bold text-slate-800 align-top text-xs print:text-[7.5pt] whitespace-nowrap">
                     Evidência / Plugin Output
                   </td>
                   <td colspan="3" class="p-2 text-slate-800 align-top">

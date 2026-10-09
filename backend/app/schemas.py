@@ -378,6 +378,7 @@ class DashboardStats(BaseModel):
     info_count: int
     exploitable_total_count: int
     iso27001_risk_score: float # Global risk index
+    posture_score: Optional[int] = 100 # Normalized Security Posture (10-100)
     iso9001_remediation_efficiency: Optional[float] = None # % of resolved issues overall
     severity_breakdown: Dict[str, int]
     aging_breakdown: Dict[str, int] = {}
@@ -392,6 +393,7 @@ class DashboardStats(BaseModel):
     action_plans_summary: Optional[Dict[str, Any]] = None
     asset_group_distribution: List[Dict[str, Any]]
     recent_scans: List[ScanOut]
+    trend_data: Optional[Dict[str, Any]] = None
 
 # --- Comparative Diff Schemas (Before vs After) ---
 class DiffItem(BaseModel):
