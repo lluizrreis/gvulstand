@@ -9,6 +9,9 @@ __pycache__/
 # Dados gerados pelo app e uploads do Docker
 data/
 scripts/
+.agent/
+.gemini/
+.impeccable/
 
 # Caso queira ignorar especificamente apenas os uploads e preservar a pasta:
 # data/uploads/
@@ -24,3 +27,5 @@ scripts/
 # Binário Standalone do Tailwind CLI
 tailwindcss
 tailwindcss.exe
+tailwind.config.js
+
