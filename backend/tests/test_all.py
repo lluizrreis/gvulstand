@@ -229,6 +229,13 @@ def test_scan_upload_and_dashboard():
     assert stats["total_findings"] > 0
     assert stats["critical_count"] > 0
     assert stats["iso27001_risk_score"] > 0
+    assert "exploitable_total_count" in stats
+
+    # Test Vulnerabilities with exploit consistency with dashboard
+    vulns_exp_res = client.get("/api/vulnerabilities?has_exploit=true", headers=headers)
+    assert vulns_exp_res.status_code == 200
+    vulns_exp = vulns_exp_res.json()
+    assert stats["exploitable_total_count"] == len(vulns_exp)
 
     # Test Top 100 Critical
     top_crit_res = client.get("/api/dashboard/top-critical", headers=headers)

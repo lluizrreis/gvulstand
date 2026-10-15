@@ -12,6 +12,28 @@ def get_admin_token():
     assert res.status_code == 200
     return res.json()["access_token"]
 
+def get_sample_open_vuln_in_latest_scan(db):
+    from app.services.scan_service import get_latest_scan_ids
+    groups = db.query(models.AssetGroup).all()
+    for g in groups:
+        latest_ids = get_latest_scan_ids(db, g.id)
+        if not latest_ids:
+            continue
+        vuln = db.query(models.Vulnerability).join(models.Host, models.Vulnerability.host_id == models.Host.id).filter(
+            models.Vulnerability.scan_id.in_(latest_ids),
+            models.Host.asset_group_id == g.id,
+            ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+            models.Vulnerability.treatment_status.in_(["Open", "open"])
+        ).first()
+        if vuln:
+            return vuln
+    latest_ids = get_latest_scan_ids(db)
+    return db.query(models.Vulnerability).filter(
+        models.Vulnerability.scan_id.in_(latest_ids),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
+        models.Vulnerability.treatment_status.in_(["Open", "open"])
+    ).first()
+
 def test_action_plans_lifecycle_and_features():
     token = get_admin_token()
     headers = {"Authorization": f"Bearer {token}"}
@@ -33,13 +55,7 @@ def test_action_plans_lifecycle_and_features():
 
     # Find a host and vulnerability in latest scan for linking
     db = SessionLocal()
-    from app.services.scan_service import get_latest_scan_ids
-    latest_scan_ids = get_latest_scan_ids(db)
-    vuln = db.query(models.Vulnerability).filter(
-        models.Vulnerability.scan_id.in_(latest_scan_ids),
-        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
-        models.Vulnerability.treatment_status.in_(["Open", "open"])
-    ).first()
+    vuln = get_sample_open_vuln_in_latest_scan(db)
     host = vuln.host if vuln else None
     db.close()
 
@@ -182,13 +198,7 @@ def test_action_plan_creation_from_host_ip_and_plugin():
     headers = {"Authorization": f"Bearer {token}"}
 
     db = SessionLocal()
-    from app.services.scan_service import get_latest_scan_ids
-    latest_scan_ids = get_latest_scan_ids(db)
-    vuln = db.query(models.Vulnerability).filter(
-        models.Vulnerability.scan_id.in_(latest_scan_ids),
-        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
-        models.Vulnerability.treatment_status.in_(["Open", "open"])
-    ).first()
+    vuln = get_sample_open_vuln_in_latest_scan(db)
     host = vuln.host if vuln else None
     plugin_id = vuln.plugin_id if vuln else "100464"
     db.close()
@@ -940,13 +950,7 @@ def test_action_plan_automated_tasks_generation_rules():
     headers = {"Authorization": f"Bearer {token}"}
 
     db = SessionLocal()
-    from app.services.scan_service import get_latest_scan_ids
-    latest_scan_ids = get_latest_scan_ids(db)
-    v1 = db.query(models.Vulnerability).filter(
-        models.Vulnerability.scan_id.in_(latest_scan_ids),
-        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"]),
-        models.Vulnerability.treatment_status.in_(["Open", "open"])
-    ).first()
+    v1 = get_sample_open_vuln_in_latest_scan(db)
     assert v1 is not None
     h1 = v1.host
     assert h1 is not None

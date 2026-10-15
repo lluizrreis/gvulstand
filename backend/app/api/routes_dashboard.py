@@ -116,10 +116,9 @@ def get_dashboard_stats(
     # Total findings counts only actual actionable vulnerabilities (Critical, High, Medium, Low)
     total_findings = crit_count + high_count + med_count + low_count
 
-    # Exploitable count (only actionable vulnerabilities)
+    # Exploitable count (total de vulnerabilidades com exploit público disponível)
     exploit_count = vuln_q.filter(
-        models.Vulnerability.exploit_available == True,
-        models.Vulnerability.severity != "Info"
+        models.Vulnerability.exploit_available == True
     ).count()
 
     # ISO 27001 Risk Posture Score

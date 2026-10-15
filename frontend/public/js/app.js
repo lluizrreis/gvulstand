@@ -997,6 +997,7 @@ const App = {
       setVal('kpi-medium', (stats.medium_count || 0).toLocaleString());
       setVal('kpi-low', (stats.low_count || 0).toLocaleString());
       setVal('kpi-exploits', (stats.exploitable_total_count || 0).toLocaleString());
+      setVal('kpi-exploits-secondary', (stats.exploitable_total_count || 0).toLocaleString());
       setVal('kpi-total-findings', (stats.total_findings || 0).toLocaleString());
       setVal('kpi-total-hosts', (stats.total_unique_hosts || 0).toLocaleString());
 
@@ -1307,7 +1308,7 @@ const App = {
     const groupId = this.state.selectedAssetGroupId || null;
     const tbody = document.getElementById('top100-tbody');
     if (!tbody) return;
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400">Carregando Top 100 vulnerabilidades críticas...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-slate-400">Carregando Top 100 vulnerabilidades críticas...</td></tr>`;
 
     try {
       const vulns = await API.getTopCritical(groupId, 100);
@@ -1318,7 +1319,7 @@ const App = {
       this.updateTop100SortUI();
       this.renderTop100Table();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-rose-400">Erro ao carregar dados: ${e.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-rose-400">Erro ao carregar dados: ${e.message}</td></tr>`;
     }
   },
 
@@ -1327,14 +1328,14 @@ const App = {
       this.state.top100SortOrder = this.state.top100SortOrder === 'asc' ? 'desc' : 'asc';
     } else {
       this.state.top100SortField = field;
-      this.state.top100SortOrder = (field === 'plugin_name' || field === 'plugin_id') ? 'asc' : 'desc';
+      this.state.top100SortOrder = field === 'plugin_name' ? 'asc' : 'desc';
     }
     this.updateTop100SortUI();
     this.renderTop100Table();
   },
 
   updateTop100SortUI() {
-    ['plugin_id', 'plugin_name', 'cvss_v3', 'affected_hosts_count', 'exploit_available'].forEach(f => {
+    ['plugin_name', 'cvss_v3', 'affected_hosts_count', 'exploit_available'].forEach(f => {
       const th = document.getElementById(`th-top100-${f}`);
       const ind = document.getElementById(`th-top100-sort-${f}`);
       if (th && ind) {
@@ -1369,14 +1370,13 @@ const App = {
     });
 
     if (items.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-500">Nenhuma vulnerabilidade crítica encontrada na base.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-slate-500">Nenhuma vulnerabilidade crítica encontrada na base.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = items.map((v, idx) => `
       <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
         <td class="font-bold text-slate-500 dark:text-slate-400 text-center font-mono text-xs">#${idx + 1}</td>
-        <td class="font-mono text-xs text-slate-600 dark:text-slate-400">${v.plugin_id}</td>
         <td>
           <div class="font-medium text-slate-800 dark:text-slate-100">${v.plugin_name}</div>
           <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">${v.synopsis || ''}</div>
@@ -2171,30 +2171,34 @@ const App = {
         const consolidatedTooltip = hasSubgroups ? `Consolidado: métricas do grupo e seus ${g.subgroups_count} subgrupos subordinados` : 'Métricas exclusivas deste grupo';
 
         return `
-          <tr class="hover:bg-slate-800/40 transition">
-            <td>${nameHtml}</td>
-            <td class="text-xs text-slate-400 font-mono">${g.network_range || 'Não especificada'}</td>
-            <td class="text-xs text-slate-300">${g.owner || 'Não informado'}</td>
+          <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+            <td class="py-3">${nameHtml}</td>
+            <td class="text-xs text-slate-600 dark:text-slate-400 font-mono">${g.network_range || 'Não especificada'}</td>
+            <td class="text-xs text-slate-700 dark:text-slate-300">${g.owner || 'Não informado'}</td>
             <td class="text-center">
-              <span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-300 border border-slate-700 font-semibold" title="${consolidatedTooltip}">${g.total_scans || 0} Scans</span>
+              <span class="px-2 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-semibold" title="${consolidatedTooltip}">${g.total_scans || 0} Scans</span>
             </td>
             <td class="text-center">
-              <span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-300 border border-slate-700 font-semibold" title="${consolidatedTooltip}">${g.total_hosts || 0} Hosts</span>
+              <span class="px-2 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-semibold" title="${consolidatedTooltip}">${g.total_hosts || 0} Hosts</span>
             </td>
             <td class="text-center">
               <span class="badge-critical px-2 py-0.5 rounded text-xs font-bold" title="${consolidatedTooltip}">${g.critical_count || 0}</span> / 
               <span class="badge-high px-2 py-0.5 rounded text-xs font-bold" title="${consolidatedTooltip}">${g.high_count || 0}</span>
             </td>
-            <td class="text-right space-x-1">
-              ${(this.state.user?.role === 'admin' || this.state.user?.role === 'analyst') ? `
-                <button onclick="App.openCreateScannerIntegrationModal(${g.id})" title="Configurar Integração de API (Tenable / Defender)" class="px-2 py-1 text-xs font-medium rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/30 cursor-pointer inline-flex items-center space-x-1">
-                  <i data-lucide="cloud-lightning" class="w-3.5 h-3.5"></i>
-                  <span>API</span>
-                </button>
-                <button onclick="App.openEditAssetGroupModal(${g.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">Editar</button>
-              ` : ''}
-              ${this.state.user?.role === 'admin' ? `<button onclick="App.handleDeleteAssetGroup(${g.id})" class="px-2.5 py-1 text-xs font-medium rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 cursor-pointer">Excluir</button>` : ''}
-              ${this.state.user?.role === 'auditor' ? `<span class="text-xs text-slate-500 italic">Somente Leitura</span>` : ''}
+            <td class="text-right whitespace-nowrap">
+              <div class="flex items-center justify-end space-x-1">
+                ${(this.state.user?.role === 'admin' || this.state.user?.role === 'analyst') ? `
+                  <button onclick="App.openEditAssetGroupModal(${g.id})" title="Editar Grupo de Ativos" aria-label="Editar Grupo de Ativos" class="p-1.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer">
+                    <i data-lucide="edit-3" class="w-4 h-4"></i>
+                  </button>
+                ` : ''}
+                ${this.state.user?.role === 'admin' ? `
+                  <button onclick="App.handleDeleteAssetGroup(${g.id})" title="Excluir Grupo de Ativos" aria-label="Excluir Grupo de Ativos" class="p-1.5 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition cursor-pointer">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                  </button>
+                ` : ''}
+                ${this.state.user?.role === 'auditor' ? `<span class="text-xs text-slate-500 italic">Somente Leitura</span>` : ''}
+              </div>
             </td>
           </tr>
         `;
@@ -2867,7 +2871,7 @@ const App = {
     this.loadVulnerabilitiesList();
   },
 
-  clearAllVulnFilters() {
+  clearAllVulnFilters(reload = true) {
     const searchInput = document.getElementById('vuln-search-input');
     const hostFilter = document.getElementById('vuln-host-filter');
     const sevFilter = document.getElementById('vuln-sev-filter');
@@ -2883,11 +2887,38 @@ const App = {
     if (orphanFilter) orphanFilter.checked = false;
 
     this.state.vulnPage = 1;
-    this.loadVulnerabilitiesList();
+    if (reload) {
+      this.loadVulnerabilitiesList();
+    }
   },
 
   clearHostFilter() {
     this.clearAllVulnFilters();
+  },
+
+  setExploitQuickFilter() {
+    this.clearAllVulnFilters(false);
+    const exploitFilter = document.getElementById('vuln-exploit-filter');
+    if (exploitFilter) {
+      exploitFilter.value = 'true';
+    }
+    this.state.vulnPage = 1;
+    this.navigate('vulnerabilities');
+  },
+
+  setSeverityQuickFilter(sev) {
+    this.clearAllVulnFilters(false);
+    const sevFilter = document.getElementById('vuln-sev-filter');
+    if (sevFilter) {
+      sevFilter.value = sev || '';
+    }
+    this.state.vulnPage = 1;
+    this.navigate('vulnerabilities');
+  },
+
+  showAllVulnerabilities() {
+    this.clearAllVulnFilters(false);
+    this.navigate('vulnerabilities');
   },
 
   updateBulkBar() {
@@ -4342,12 +4373,12 @@ const App = {
       document.getElementById('modal-treatment-status').value = v.treatment_status;
       document.getElementById('modal-treatment-notes').value = v.treatment_notes || '';
 
-      // Auditor Mode: disable treatment controls and hide save button
+      // Auditor Mode: disable treatment controls and hide save/plan buttons
       const isAuditor = (this.state.user?.role || '').toLowerCase() === 'auditor';
       const statusSelect = document.getElementById('modal-treatment-status');
       const notesInput = document.getElementById('modal-treatment-notes');
       const saveBtn = document.getElementById('btn-save-treatment');
-      const saveBtnTop = document.getElementById('btn-save-treatment-top');
+      const planBtn = document.getElementById('vuln-modal-create-plan-btn');
       const auditorBadge = document.getElementById('modal-treatment-auditor-badge');
 
       if (statusSelect) statusSelect.disabled = isAuditor;
@@ -4356,9 +4387,9 @@ const App = {
         if (isAuditor) saveBtn.classList.add('hidden');
         else saveBtn.classList.remove('hidden');
       }
-      if (saveBtnTop) {
-        if (isAuditor) saveBtnTop.classList.add('hidden');
-        else saveBtnTop.classList.remove('hidden');
+      if (planBtn) {
+        if (isAuditor) planBtn.classList.add('hidden');
+        else planBtn.classList.remove('hidden');
       }
       if (auditorBadge) {
         if (isAuditor) auditorBadge.classList.remove('hidden');
@@ -4467,9 +4498,11 @@ const App = {
     if (notesInput) notesInput.classList.remove('border-rose-400', 'focus:ring-rose-400');
 
     const btn = document.getElementById('btn-save-treatment');
-    const btnTop = document.getElementById('btn-save-treatment-top');
-    if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
-    if (btnTop) { btnTop.disabled = true; btnTop.textContent = 'Salvando...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i><span>Salvando...</span>`;
+      this.refreshIcons();
+    }
 
     try {
       await API.updateVulnerabilityTreatment(vulnId, status, notes);
@@ -4484,6 +4517,9 @@ const App = {
       if (auditUser) auditUser.textContent = v.treated_by_username || '-';
       if (auditDate) auditDate.textContent = v.treated_at_formatted || (v.treated_at ? this.formatDateTime(v.treated_at) : '-');
 
+      // Atualiza o card de plano de ação se o status tiver mudado
+      this.renderVulnActionPlanCard(v);
+
       // Atualiza a lista de vulnerabilidades em background
       this.loadCurrentTabData();
     } catch (e) {
@@ -4492,8 +4528,11 @@ const App = {
         saveError.classList.remove('hidden');
       }
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Salvar Tratativa'; }
-      if (btnTop) { btnTop.disabled = false; btnTop.textContent = 'Salvar Tratativa'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="check" class="w-4 h-4"></i><span>Salvar Tratativa</span>`;
+        this.refreshIcons();
+      }
     }
   },
 
@@ -4930,17 +4969,12 @@ const App = {
       this.refreshIcons();
     } else {
       cardEl.innerHTML = `
-        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center space-x-2.5 text-xs text-slate-600 dark:text-slate-400">
-            <i data-lucide="alert-circle" class="w-4 h-4 text-amber-500 flex-shrink-0"></i>
-            <span>Nenhum plano de ação ativo associado a esta ocorrência (Vulnerabilidade Órfã).</span>
-          </div>
-          <button type="button" onclick="App.openCreatePlanModalFromVuln()" class="px-3 py-1.5 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900 border border-teal-200 dark:border-indigo-800 text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition flex-shrink-0">
-            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
-            <span>Criar Plano</span>
-          </button>
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center space-x-2.5 text-xs text-slate-600 dark:text-slate-400">
+          <i data-lucide="alert-circle" class="w-4 h-4 text-amber-500 flex-shrink-0"></i>
+          <span>Nenhum plano de ação ativo associado a esta ocorrência (Vulnerabilidade Órfã).</span>
         </div>
       `;
+      this.refreshIcons();
     }
   },
 
@@ -6826,7 +6860,7 @@ const App = {
   setupWizardStep3View() {
     const hosts = this.state.planWizardSelectedHosts || [];
     const modeWrapper = document.getElementById('plan-wizard-vuln-mode-wrapper');
-    const pickerSection = document.getElementById('plan-wizard-vuln-picker-section');
+    const pickerSection = document.getElementById('plan-wizard-vuln-picker-section') || document.getElementById('plan-wizard-vulns-selector-container');
     const pickerLabel = document.getElementById('plan-wizard-vuln-picker-label');
     const contextDesc = document.getElementById('plan-wizard-step3-context-desc');
 
