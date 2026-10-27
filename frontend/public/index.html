@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="/static/css/fonts.css?v=20261006_v1">
   
   <!-- Compiled Static Tailwind CSS -->
-  <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20261006_v1">
+  <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20261027_v70">
 
   <!-- Local Chart.js & Lucide Icons -->
   <script src="/static/vendor/chart.min.js?v=20261006_v1"></script>
@@ -376,8 +376,12 @@
                 <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
                 <span>Console Executivo &bull; Postura Contínua de Risco</span>
               </div>
-              <h2 class="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center space-x-2">
-                <span>Visão Executiva &amp; Postura Cibernética</span>
+              <h2 class="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white flex flex-wrap items-center gap-2.5">
+                <span>Visão Executiva &amp; Postura Cibernética |</span>
+                <span id="dashboard-selected-group-badge" title="Grupo de Ativos selecionado no filtro">
+                  
+                  <span id="dashboard-selected-group-name">Todos os Grupos de Ativos</span>
+                </span>
               </h2>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
                 Painel dinâmico consolidado de inteligência contra ameaças, distribuição de severidade CVSS, conformidade de SLA e eficácia de remediação ISO 27001 / ISO 9001.
@@ -5243,9 +5247,9 @@
 
 
   <!-- Application Scripts -->
-  <script src="/static/js/api.js?v=20261015_v68"></script>
-  <script src="/static/js/charts.js?v=20261015_v68"></script>
-  <script src="/static/js/app.js?v=20261015_v68"></script>
+  <script src="/static/js/api.js?v=20261027_v70"></script>
+  <script src="/static/js/charts.js?v=20261027_v70"></script>
+  <script src="/static/js/app.js?v=20261027_v70"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       if (window.lucide && typeof lucide.createIcons === 'function') {

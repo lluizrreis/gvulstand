@@ -239,6 +239,7 @@ const App = {
         this.state.selectedAssetGroupId = e.target.value;
         const actionGroupFilter = document.getElementById('action-filter-asset-group');
         if (actionGroupFilter) actionGroupFilter.value = e.target.value || '';
+        this.updateDashboardAssetGroupIndicator();
         this.loadUniqueHostsDatalist();
         this.loadCurrentTabData();
       });
@@ -954,6 +955,7 @@ const App = {
         if (currFilter && this.state.assetGroups.some(g => String(g.id) === String(currFilter))) {
           filter.value = currFilter;
         }
+        this.updateDashboardAssetGroupIndicator();
       }
 
       if (actionGroupFilter) {
@@ -978,8 +980,32 @@ const App = {
     }
   },
 
+  updateDashboardAssetGroupIndicator() {
+    const el = document.getElementById('dashboard-selected-group-name');
+    if (!el) return;
+    const filter = document.getElementById('global-asset-group-filter');
+    const groupId = this.state.selectedAssetGroupId || (filter ? filter.value : '');
+
+    if (!groupId) {
+      el.textContent = 'Todos os Grupos de Ativos';
+      return;
+    }
+
+    const group = (this.state.assetGroups || []).find(g => String(g.id) === String(groupId));
+    if (group && group.name) {
+      el.textContent = group.name;
+    } else if (filter && filter.selectedIndex >= 0) {
+      const selectedOption = filter.options[filter.selectedIndex];
+      const text = selectedOption ? selectedOption.text.trim() : 'Todos os Grupos de Ativos';
+      el.textContent = text.replace(/^[🏢📍⤷\s]+/, '').trim() || 'Todos os Grupos de Ativos';
+    } else {
+      el.textContent = 'Todos os Grupos de Ativos';
+    }
+  },
+
   // --- DASHBOARD MODULE ---
   async loadDashboardData() {
+    this.updateDashboardAssetGroupIndicator();
     const groupId = this.state.selectedAssetGroupId || null;
     try {
       const stats = await API.getDashboardStats(groupId);
@@ -5295,7 +5321,7 @@ const App = {
           <div class="text-xs text-slate-400 mt-0.5 line-clamp-2">${item.error_description}</div>
         </td>
         <td>
-          <div class="p-2 rounded bg-amber-950/30 border border-amber-800/40 text-xs text-amber-200/90 leading-tight">
+          <div class="p-2 rounded bg-amber-950/30 border border-amber-800/40 text-xs text-[#94a3b8] leading-tight">
             <span class="font-bold text-amber-300">Ação para Novo Scan:</span> ${item.recommended_action}
           </div>
         </td>
@@ -5889,6 +5915,7 @@ const App = {
     if (globalFilter) globalFilter.value = groupId || '';
     const actionGroupFilter = document.getElementById('action-filter-asset-group');
     if (actionGroupFilter) actionGroupFilter.value = groupId || '';
+    this.updateDashboardAssetGroupIndicator();
     this.loadActionPlansData();
   },
 
@@ -5909,6 +5936,7 @@ const App = {
     this.state.selectedAssetGroupId = '';
     const globalFilter = document.getElementById('global-asset-group-filter');
     if (globalFilter) globalFilter.value = '';
+    this.updateDashboardAssetGroupIndicator();
     this.loadActionPlansData();
   },
 
