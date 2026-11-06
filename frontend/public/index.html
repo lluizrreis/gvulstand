@@ -413,15 +413,15 @@
               </div>
               <div class="flex items-baseline justify-between mt-3">
                 <div class="flex items-baseline space-x-1.5">
-                  <span id="kpi-posture-score" class="text-3xl sm:text-4xl font-extrabold font-mono text-teal-700 dark:text-teal-300 tabular-nums">82</span>
+                  <span id="kpi-posture-score" class="text-3xl sm:text-4xl font-extrabold font-mono text-slate-400 dark:text-slate-500 tabular-nums">—</span>
                   <span class="text-xs font-bold text-slate-400">/ 100</span>
                 </div>
                 <div class="text-right">
-                  <span class="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">Score Médio: <span id="iso-risk-score" class="text-amber-600 dark:text-amber-400">0.0</span></span>
+                  <span class="text-xs font-mono font-bold text-slate-700 dark:text-slate-300" title="Índice de Risco Residual Médio por Ativo (ISO/IEC 27001 Controle 8.8)">Risco / Host: <span id="iso-risk-score" class="text-amber-600 dark:text-amber-400">—</span></span>
                 </div>
               </div>
               <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
-                <div id="kpi-posture-bar" class="bg-teal-600 h-2 rounded-full transition-all duration-500" style="width: 82%;"></div>
+                <div id="kpi-posture-bar" class="bg-teal-600 h-2 rounded-full transition-all duration-500" style="width: 0%;"></div>
               </div>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-2 truncate">Conformidade de risco ISO/IEC 27001 (Controle 8.8)</p>
             </div>
@@ -5247,9 +5247,9 @@
 
 
   <!-- Application Scripts -->
-  <script src="/static/js/api.js?v=20261027_v70"></script>
-  <script src="/static/js/charts.js?v=20261027_v70"></script>
-  <script src="/static/js/app.js?v=20261027_v70"></script>
+  <script src="/static/js/api.js?v=20261106_v71"></script>
+  <script src="/static/js/charts.js?v=20261106_v71"></script>
+  <script src="/static/js/app.js?v=20261106_v71"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       if (window.lucide && typeof lucide.createIcons === 'function') {

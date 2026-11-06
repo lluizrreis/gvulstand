@@ -30,6 +30,31 @@ def resolve_dashboard_scan_ids(db: Session, current_user: models.User, asset_gro
         else:
             return get_latest_scan_ids(db, None)
 
+def calculate_posture_score(risk_score: float) -> int:
+    """
+    Calcula o Score de Postura de Segurança (0 a 100) alinhado às faixas
+    de governança de risco do GvulStand (ISO/IEC 27001 Controle 8.8):
+      - Risco <= 0.0 -> Postura 100 (Excelente, sem passivos residuais)
+      - Risco <= 20.0 -> Postura 100 a 80 (Ambiente Controlado / Risco Baixo)
+      - Risco <= 60.0 -> Postura 80 a 60 (Atenção Gerencial / Risco Moderado)
+      - Risco <= 120.0 -> Postura 60 a 30 (Risco Elevado / Ação Necessária)
+      - Risco <= 200.0 -> Postura 30 a 5 (Risco Crítico / Ação Emergencial)
+      - Risco > 200.0 -> Postura decai suavemente até 0
+    """
+    if risk_score <= 0.0:
+        return 100
+    if risk_score <= 20.0:
+        score = 100.0 - (risk_score / 20.0) * 20.0
+    elif risk_score <= 60.0:
+        score = 80.0 - ((risk_score - 20.0) / 40.0) * 20.0
+    elif risk_score <= 120.0:
+        score = 60.0 - ((risk_score - 60.0) / 60.0) * 30.0
+    elif risk_score <= 200.0:
+        score = 30.0 - ((risk_score - 120.0) / 80.0) * 25.0
+    else:
+        score = max(0.0, 5.0 - ((risk_score - 200.0) / 100.0) * 5.0)
+    return int(round(max(0, min(100, score))))
+
 @router.get("/stats", response_model=schemas.DashboardStats)
 def get_dashboard_stats(
     asset_group_id: Optional[int] = None,
@@ -121,11 +146,28 @@ def get_dashboard_stats(
         models.Vulnerability.exploit_available == True
     ).count()
 
-    # ISO 27001 Risk Posture Score
-    raw_risk = (crit_count * 10.0) + (high_count * 5.0) + (med_count * 2.0) + (low_count * 0.5)
+    # ISO 27001 Risk Posture Score (Calculado sobre o Risco Residual Ativo, excluindo Remediadas)
+    pending_vuln_q = vuln_q.filter(
+        ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated"])
+    )
+    crit_pending = pending_vuln_q.filter(models.Vulnerability.severity == "Critical").count()
+    high_pending = pending_vuln_q.filter(models.Vulnerability.severity == "High").count()
+    med_pending = pending_vuln_q.filter(models.Vulnerability.severity == "Medium").count()
+    low_pending = pending_vuln_q.filter(models.Vulnerability.severity == "Low").count()
+    exploit_crit_pending = pending_vuln_q.filter(
+        models.Vulnerability.severity == "Critical",
+        models.Vulnerability.exploit_available == True
+    ).count()
+
+    raw_risk = (
+        (crit_pending * 10.0) +
+        (high_pending * 5.0) +
+        (med_pending * 2.0) +
+        (low_pending * 0.5) +
+        (exploit_crit_pending * 5.0)
+    )
     iso27001_risk_score = round(raw_risk / max(1, total_unique_hosts), 1)
-    import math
-    posture_score = max(10, min(100, round(100 - (16.0 * math.log(1.0 + iso27001_risk_score)))))
+    posture_score = calculate_posture_score(iso27001_risk_score)
 
     # ISO 9001 Remediation Efficiency
     remediated_count = vuln_q.filter(

@@ -229,6 +229,17 @@ def test_scan_upload_and_dashboard():
     assert stats["total_findings"] > 0
     assert stats["critical_count"] > 0
     assert stats["iso27001_risk_score"] > 0
+    assert stats["posture_score"] is not None
+    assert 0 <= stats["posture_score"] <= 100
+
+    # Test calculate_posture_score calibrated curves
+    from app.api.routes_dashboard import calculate_posture_score
+    assert calculate_posture_score(0.0) == 100
+    assert calculate_posture_score(20.0) == 80
+    assert calculate_posture_score(60.0) == 60
+    assert calculate_posture_score(120.0) == 30
+    assert 14 <= calculate_posture_score(167.8) <= 16
+    assert calculate_posture_score(300.0) == 0
     assert "exploitable_total_count" in stats
 
     # Test Vulnerabilities with exploit consistency with dashboard

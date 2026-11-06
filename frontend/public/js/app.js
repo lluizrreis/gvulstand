@@ -1004,9 +1004,31 @@ const App = {
   },
 
   // --- DASHBOARD MODULE ---
+  calculatePostureScore(riskScore) {
+    const r = Number(riskScore || 0);
+    if (r <= 0) return 100;
+    if (r <= 20.0) return Math.round(100.0 - (r / 20.0) * 20.0);
+    if (r <= 60.0) return Math.round(80.0 - ((r - 20.0) / 40.0) * 20.0);
+    if (r <= 120.0) return Math.round(60.0 - ((r - 60.0) / 60.0) * 30.0);
+    if (r <= 200.0) return Math.round(30.0 - ((r - 120.0) / 80.0) * 25.0);
+    return Math.max(0, Math.round(5.0 - ((r - 200.0) / 100.0) * 5.0));
+  },
+
   async loadDashboardData() {
     this.updateDashboardAssetGroupIndicator();
     const groupId = this.state.selectedAssetGroupId || null;
+
+    // Reset imediato para estado de loading nos cards executivos principais
+    const postureEl = document.getElementById('kpi-posture-score');
+    if (postureEl) {
+      postureEl.textContent = '—';
+      postureEl.className = 'text-3xl sm:text-4xl font-extrabold font-mono text-slate-400 dark:text-slate-500 tabular-nums animate-pulse';
+    }
+    const riskEl = document.getElementById('iso-risk-score');
+    if (riskEl) riskEl.textContent = '—';
+    const postureBar = document.getElementById('kpi-posture-bar');
+    if (postureBar) postureBar.style.width = '0%';
+
     try {
       const stats = await API.getDashboardStats(groupId);
 
@@ -1072,11 +1094,11 @@ const App = {
         remRateEl.classList.toggle('dark:text-slate-500', remediationRate === null);
       }
       setVal('kpi-total-monitored-hosts', (stats.total_unique_hosts || 0).toLocaleString());
-      // Postura de Segurança ISO/IEC 27001 (Normalizado 10 a 100 via decaimento logarítmico)
+      // Postura de Segurança ISO/IEC 27001 (Calibrado de 0 a 100 alinhado às faixas de risco residual)
       const rawRiskScore = Number(stats.iso27001_risk_score || 0);
       const postureScore = (stats.posture_score !== undefined && stats.posture_score !== null)
         ? stats.posture_score
-        : Math.max(10, Math.min(100, Math.round(100 - (16.0 * Math.log(1.0 + rawRiskScore)))));
+        : this.calculatePostureScore(rawRiskScore);
 
       const postureEl = document.getElementById('kpi-posture-score');
       if (postureEl) {
@@ -1084,7 +1106,7 @@ const App = {
         postureEl.className = 'text-3xl sm:text-4xl font-extrabold font-mono tabular-nums ' + (
           postureScore >= 80 
             ? 'text-teal-700 dark:text-teal-300' 
-            : (postureScore >= 50 
+            : (postureScore >= 60 
                 ? 'text-amber-600 dark:text-amber-400' 
                 : 'text-rose-600 dark:text-rose-400')
         );
@@ -1095,7 +1117,7 @@ const App = {
         postureBar.className = 'h-2 rounded-full transition-all duration-500 ' + (
           postureScore >= 80 
             ? 'bg-teal-600' 
-            : (postureScore >= 50 
+            : (postureScore >= 60 
                 ? 'bg-amber-500' 
                 : 'bg-rose-500')
         );
