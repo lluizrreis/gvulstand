@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/home/ubnt/gvulstand/.archify/architecture-gvulstand-core-20261107-130255/candidate.json",
+    "sha256": "9f81888606ff0e992c884559b857d4df57b24c2970cea7b7aa391639838c2a35",
+    "bytes": 6931
+  },
+  "artifact": {
+    "path": "/home/ubnt/gvulstand/docs/diagrams/architecture-gvulstand-core.html",
+    "sha256": "b52c9051acf6f9d1f61522d6980e255ea6c352d93f618a97d30091b37752d52d",
+    "bytes": 850425
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/home/ubnt/gvulstand/docs/diagrams/architecture-gvulstand-core.finalize.json",
+    "summaryReceipt": "/home/ubnt/gvulstand/docs/diagrams/architecture-gvulstand-core.finalize-summary.json",
+    "browserCheckReceipt": "/home/ubnt/gvulstand/docs/diagrams/architecture-gvulstand-core.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-11-07T15:33:35.540Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 3969,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  },
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "routesOverSuggestedBends": 2
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [],
+      "detours": [
+        {
+          "relationship": {
+            "id": "conn-nginx-fastapi",
+            "from": "nginx",
+            "to": "fastapi",
+            "label": "proxy_pass :8000",
+            "collectionIndex": 2,
+            "artifactIndex": 3
+          },
+          "bends": 3,
+          "stretch": 1.279
+        },
+        {
+          "relationship": {
+            "id": "conn-fastapi-postgres",
+            "from": "fastapi",
+            "to": "postgres",
+            "label": "SQLAlchemy ORM",
+            "collectionIndex": 3,
+            "artifactIndex": 4
+          },
+          "bends": 3,
+          "stretch": 1.257
+        }
+      ],
+      "truncated": false
+    },
+    "hints": [
+      "nginx → fastapi needs 3 bends: move node nginx or fastapi so they share a row or column with matching centers, or sit diagonally with a clear corner.",
+      "fastapi → postgres needs 3 bends: move node fastapi or postgres so they share a row or column with matching centers, or sit diagonally with a clear corner."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

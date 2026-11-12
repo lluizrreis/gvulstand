@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "0b9f5d9d-8faf-401c-b624-9d4e3a675f2f",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/home/ubnt/gvulstand/.archify/architecture-gvulstand-core-20261107-130255/candidate.json",
+  "output": "/home/ubnt/gvulstand/docs/diagrams/architecture-gvulstand-core.html",
+  "specification": {
+    "sha256": "9f81888606ff0e992c884559b857d4df57b24c2970cea7b7aa391639838c2a35",
+    "bytes": 6931
+  },
+  "artifact": {
+    "sha256": "b52c9051acf6f9d1f61522d6980e255ea6c352d93f618a97d30091b37752d52d",
+    "bytes": 850425
+  }
+}

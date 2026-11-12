@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, case, and_
 from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, check_user_group_access, get_user_allowed_group_ids
@@ -792,24 +792,67 @@ def get_top_20_hosts_with_exploits(
     if not active_scan_ids:
         return []
 
-    host_q = db.query(models.Host)\
-        .join(models.AssetGroup, models.Host.asset_group_id == models.AssetGroup.id)\
-        .filter(models.Host.scan_id.in_(active_scan_ids))
+    # Subconsulta de vulnerabilidades ativas/residuais por host (excluindo Remediadas e Info/None)
+    active_vuln_subq = db.query(
+        models.Vulnerability.host_id.label("v_host_id"),
+        func.coalesce(func.sum(case((models.Vulnerability.severity == "Critical", 1), else_=0)), 0).label("active_critical_count"),
+        func.coalesce(func.sum(case((models.Vulnerability.severity == "High", 1), else_=0)), 0).label("active_high_count"),
+        func.coalesce(func.sum(case((models.Vulnerability.severity == "Medium", 1), else_=0)), 0).label("active_medium_count"),
+        func.coalesce(func.sum(case((models.Vulnerability.severity == "Low", 1), else_=0)), 0).label("active_low_count"),
+        func.coalesce(func.sum(case((and_(models.Vulnerability.severity == "Critical", models.Vulnerability.exploit_available == True), 1), else_=0)), 0).label("active_exploitable_critical_count")
+    ).filter(
+        models.Vulnerability.scan_id.in_(active_scan_ids),
+        ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated"]),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+    )
+    active_vuln_subq = apply_indicator_exclusion(active_vuln_subq, db)
+    active_vuln_subq = active_vuln_subq.group_by(models.Vulnerability.host_id).subquery()
 
-    # Order by highest exploitable critical count, then risk score
-    hosts = host_q.order_by(
-        models.Host.exploitable_critical_count.desc(),
-        models.Host.critical_count.desc(),
-        models.Host.risk_score.desc()
+    dyn_critical = func.coalesce(active_vuln_subq.c.active_critical_count, 0)
+    dyn_high = func.coalesce(active_vuln_subq.c.active_high_count, 0)
+    dyn_medium = func.coalesce(active_vuln_subq.c.active_medium_count, 0)
+    dyn_low = func.coalesce(active_vuln_subq.c.active_low_count, 0)
+    dyn_exploitable = func.coalesce(active_vuln_subq.c.active_exploitable_critical_count, 0)
+
+    dyn_risk_score = (
+        (dyn_critical * 10.0) +
+        (dyn_high * 5.0) +
+        (dyn_medium * 2.0) +
+        (dyn_low * 0.5) +
+        (dyn_exploitable * 5.0)
+    )
+
+    host_q = db.query(
+        models.Host,
+        dyn_critical.label("dyn_critical"),
+        dyn_high.label("dyn_high"),
+        dyn_medium.label("dyn_medium"),
+        dyn_low.label("dyn_low"),
+        dyn_exploitable.label("dyn_exploitable"),
+        dyn_risk_score.label("dyn_risk_score")
+    ).join(
+        models.AssetGroup, models.Host.asset_group_id == models.AssetGroup.id
+    ).outerjoin(
+        active_vuln_subq, models.Host.id == active_vuln_subq.c.v_host_id
+    ).filter(
+        models.Host.scan_id.in_(active_scan_ids)
+    )
+
+    # Order by highest active exploitable critical count, then critical count, then risk score
+    hosts_rows = host_q.order_by(
+        dyn_exploitable.desc(),
+        dyn_critical.desc(),
+        dyn_risk_score.desc()
     ).limit(limit).all()
 
     result = []
-    for h in hosts:
-        # Retrieve exploit frameworks identified on this host
+    for h, d_crit, d_high, d_med, d_low, d_exp, d_risk in hosts_rows:
+        # Retrieve exploit frameworks identified on this host for active vulnerabilities
         frameworks_q = db.query(models.Vulnerability.exploit_frameworks)\
             .filter(
                 models.Vulnerability.host_id == h.id,
                 models.Vulnerability.scan_id.in_(active_scan_ids),
+                ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated"]),
                 models.Vulnerability.exploit_available == True,
                 models.Vulnerability.exploit_frameworks != None
             )
@@ -829,11 +872,11 @@ def get_top_20_hosts_with_exploits(
             hostname=h.hostname,
             asset_group_name=h.asset_group.name if h.asset_group else "",
             os=h.os,
-            exploitable_critical_count=h.exploitable_critical_count,
-            critical_count=h.critical_count,
-            high_count=h.high_count,
-            medium_count=h.medium_count,
-            risk_score=h.risk_score,
+            exploitable_critical_count=int(d_exp or 0),
+            critical_count=int(d_crit or 0),
+            high_count=int(d_high or 0),
+            medium_count=int(d_med or 0),
+            risk_score=round(float(d_risk or 0.0), 1),
             exploits_list=sorted(list(frameworks_set))
         ))
 

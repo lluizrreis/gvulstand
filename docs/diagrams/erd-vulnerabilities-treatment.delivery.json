@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "bdfe3219-50aa-4b15-b02a-8f992b7cfb2d",
+  "status": "current",
+  "command": "deliver",
+  "type": "erd",
+  "input": "/home/ubnt/gvulstand/.archify/erd-vulnerabilities-treatment-20261107-123200/candidate.json",
+  "output": "/home/ubnt/gvulstand/docs/diagrams/erd-vulnerabilities-treatment.html",
+  "specification": {
+    "sha256": "8c21a4765bc56590c8cd36515de8b259e8c942377f2d46c8c124e17f6c08dd8f",
+    "bytes": 9246
+  },
+  "artifact": {
+    "sha256": "658b274e6df60ff73d048dadce61b0ec89511879ba60589b95a21885dd4a2240",
+    "bytes": 886867
+  }
+}

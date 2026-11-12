@@ -20,6 +20,9 @@ const App = {
     vulnPageSize: 50,
     vulnTotalPages: 1,
     vulnTotalCount: 0,
+    selectedVulnSeverities: ['Critical', 'High', 'Medium', 'Low'],
+    selectedVulnOS: [],
+    vulnUniqueOSList: [],
     parameters: null,
     timezones: [],
     clockInterval: null,
@@ -36,7 +39,8 @@ const App = {
     actionPlansAssignees: [],
     currentActionPlan: null,
     actionPlansPage: 1,
-    planWizardHostOsFilter: '',
+    planWizardHostOsFilter: [],
+    planWizardUniqueOsList: [],
     savedScannerCredentials: [],
     selectedCredentialSourceId: null,
     top100RawData: [],
@@ -257,21 +261,32 @@ const App = {
 
     const hostFilter = document.getElementById('vuln-host-filter');
     if (hostFilter) {
-      let hostDebounce = null;
-      hostFilter.addEventListener('input', () => {
-        clearTimeout(hostDebounce);
-        this.state.vulnPage = 1;
-        hostDebounce = setTimeout(() => this.loadVulnerabilitiesList(), 300);
-      });
-    }
-
-    const sevFilter = document.getElementById('vuln-sev-filter');
-    if (sevFilter) {
-      sevFilter.addEventListener('change', () => {
+      hostFilter.addEventListener('change', () => {
         this.state.vulnPage = 1;
         this.loadVulnerabilitiesList();
       });
     }
+
+    // Fechar dropdowns de multi-seleção ao clicar fora
+    document.addEventListener('click', (e) => {
+      const sevContainer = document.getElementById('vuln-sev-multiselect-container');
+      const sevDropdown = document.getElementById('vuln-sev-dropdown');
+      if (sevDropdown && !sevDropdown.classList.contains('hidden') && sevContainer && !sevContainer.contains(e.target)) {
+        sevDropdown.classList.add('hidden');
+      }
+
+      const osContainer = document.getElementById('vuln-os-multiselect-container');
+      const osDropdown = document.getElementById('vuln-os-dropdown');
+      if (osDropdown && !osDropdown.classList.contains('hidden') && osContainer && !osContainer.contains(e.target)) {
+        osDropdown.classList.add('hidden');
+      }
+
+      const wizOsContainer = document.getElementById('plan-wizard-host-os-filter-container');
+      const wizOsDropdown = document.getElementById('plan-wizard-host-os-dropdown');
+      if (wizOsDropdown && !wizOsDropdown.classList.contains('hidden') && wizOsContainer && !wizOsContainer.contains(e.target)) {
+        wizOsDropdown.classList.add('hidden');
+      }
+    });
 
     const exploitFilter = document.getElementById('vuln-exploit-filter');
     if (exploitFilter) {
@@ -356,12 +371,16 @@ const App = {
       }
     });
 
-    // Fecha modal de alteração de senha ao pressionar ESC
+    // Fecha modal de alteração de senha e postura de segurança ao pressionar ESC
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         const pwdModal = document.getElementById('change-pwd-modal');
         if (pwdModal && !pwdModal.classList.contains('hidden')) {
           this.closeChangePasswordModal();
+        }
+        const postureModal = document.getElementById('posture-info-modal');
+        if (postureModal && !postureModal.classList.contains('hidden')) {
+          this.closePostureModal();
         }
       }
     });
@@ -1014,6 +1033,72 @@ const App = {
     return Math.max(0, Math.round(5.0 - ((r - 200.0) / 100.0) * 5.0));
   },
 
+  openPostureModal() {
+    const modal = document.getElementById('posture-info-modal');
+    if (!modal) return;
+
+    // Atualiza os valores live se houver estatísticas no estado
+    const stats = this.state.dashboardStats;
+    if (stats) {
+      const rawRiskScore = Number(stats.iso27001_risk_score || 0);
+      const postureScore = (stats.posture_score !== undefined && stats.posture_score !== null)
+        ? stats.posture_score
+        : this.calculatePostureScore(rawRiskScore);
+
+      const uniqueHosts = Number(stats.total_unique_hosts || 0);
+      const rawRiskTotal = Number((rawRiskScore * Math.max(1, uniqueHosts)).toFixed(1));
+
+      const elPosture = document.getElementById('posture-modal-posture-val');
+      if (elPosture) {
+        elPosture.textContent = postureScore.toString();
+        elPosture.className = postureScore >= 80 
+          ? 'text-teal-600 dark:text-teal-400' 
+          : (postureScore >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400');
+      }
+      const elRisk = document.getElementById('posture-modal-risk-val');
+      if (elRisk) elRisk.textContent = rawRiskScore.toFixed(1) + ' pts';
+
+      const elRaw = document.getElementById('posture-modal-raw-risk-val');
+      if (elRaw) elRaw.textContent = rawRiskTotal.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' pts';
+
+      const elStep2 = document.getElementById('posture-modal-step2-formula');
+      if (elStep2) {
+        const totalFmt = rawRiskTotal.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        elStep2.textContent = `${totalFmt} pts ÷ ${uniqueHosts} hosts = ${rawRiskScore.toFixed(1)} pts / host`;
+      }
+
+      // Destaca suavemente a faixa atual onde o ambiente se enquadra
+      const bands = ['band-low', 'band-med', 'band-high', 'band-crit'];
+      bands.forEach(bId => {
+        const el = document.getElementById(bId);
+        if (el) {
+          el.classList.remove('border-teal-500', 'bg-teal-500/10', 'dark:bg-teal-500/10', 'font-semibold');
+        }
+      });
+      let activeBandId = 'band-low';
+      if (rawRiskScore > 120.0) activeBandId = 'band-crit';
+      else if (rawRiskScore > 60.0) activeBandId = 'band-high';
+      else if (rawRiskScore > 20.0) activeBandId = 'band-med';
+
+      const activeEl = document.getElementById(activeBandId);
+      if (activeEl) {
+        activeEl.classList.add('border-teal-500', 'bg-teal-500/10', 'dark:bg-teal-500/10', 'font-semibold');
+      }
+    }
+
+    modal.classList.remove('hidden');
+    if (window.lucide && typeof lucide.createIcons === 'function') {
+      try { lucide.createIcons(); } catch(e) {}
+    }
+  },
+
+  closePostureModal() {
+    const modal = document.getElementById('posture-info-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+    }
+  },
+
   async loadDashboardData() {
     this.updateDashboardAssetGroupIndicator();
     const groupId = this.state.selectedAssetGroupId || null;
@@ -1052,10 +1137,12 @@ const App = {
       // Modern Top 4 Executive KPI Cards & Donut Center
       setVal('donut-center-total', (stats.total_findings || 0).toLocaleString());
 
-      // --- Vulnerabilidades Pendentes = total acionável − Remediadas − Risco Aceito ---
+      // --- Vulnerabilidades Pendentes = total acionável − Remediadas − Risco Aceito − Em Plano de Ação ---
+      // Vulnerabilidades vinculadas a Planos de Ação (In_Action_Plan e In_Remediation) estão sendo
+      // assistidas em ciclo formal de tratamento e são debitadas das pendências sem plano.
       const tb = stats.treatment_breakdown || {};
       const tbGet = (status, key) => ((tb[status] || {})[key] || 0);
-      const closedStatuses = ['Remediated', 'Accepted_Risk'];
+      const assistedStatuses = ['Remediated', 'Accepted_Risk', 'In_Action_Plan', 'In_Remediation'];
       const sevKeys = ['critical', 'high', 'medium', 'low'];
       const sevTotals = {
         critical: stats.critical_count || 0,
@@ -1065,8 +1152,8 @@ const App = {
       };
       const pendingBySev = {};
       sevKeys.forEach(k => {
-        const closed = closedStatuses.reduce((acc, st) => acc + tbGet(st, k), 0);
-        pendingBySev[k] = Math.max(0, sevTotals[k] - closed);
+        const assisted = assistedStatuses.reduce((acc, st) => acc + tbGet(st, k), 0);
+        pendingBySev[k] = Math.max(0, sevTotals[k] - assisted);
       });
       const pendingTotal = sevKeys.reduce((acc, k) => acc + pendingBySev[k], 0);
 
@@ -1669,6 +1756,8 @@ const App = {
           riskBadgeClass = 'bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300 border-orange-200 dark:border-orange-800/60 font-bold';
         } else if (score >= 20) {
           riskBadgeClass = 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 font-bold';
+        } else if (score === 0) {
+          riskBadgeClass = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 font-bold';
         }
 
         const osDisplay = h.os ? this.escapeHtml(h.os) : '<span class="text-slate-400 italic text-xs">Não detectado</span>';
@@ -1930,6 +2019,13 @@ const App = {
     const hostFilter = document.getElementById('vuln-host-filter');
     if (hostFilter) {
       hostFilter.value = ip;
+      if (hostFilter.value !== ip) {
+        const opt = document.createElement('option');
+        opt.value = ip;
+        opt.textContent = ip;
+        hostFilter.appendChild(opt);
+        hostFilter.value = ip;
+      }
       this.state.vulnPage = 1;
       this.loadVulnerabilitiesList();
     }
@@ -2682,9 +2778,17 @@ const App = {
     const hostFilterVal = document.getElementById('vuln-host-filter')?.value.trim() || '';
     const isOrphan = document.getElementById('vuln-orphan-filter')?.checked || false;
 
+    const sevVal = (this.state.selectedVulnSeverities && this.state.selectedVulnSeverities.length > 0)
+      ? this.state.selectedVulnSeverities.join(',')
+      : 'NONE';
+    const osVal = (this.state.selectedVulnOS && this.state.selectedVulnOS.length > 0)
+      ? this.state.selectedVulnOS.join(',')
+      : '';
+
     const params = {
       asset_group_id: this.state.selectedAssetGroupId || '',
-      severity: document.getElementById('vuln-sev-filter')?.value || '',
+      severity: sevVal,
+      os: osVal,
       has_exploit: document.getElementById('vuln-exploit-filter')?.value || '',
       treatment_status: document.getElementById('vuln-treatment-filter')?.value || '',
       not_in_action_plan: isOrphan ? true : undefined,
@@ -2896,25 +3000,192 @@ const App = {
     this.updateBulkBar();
   },
 
-  async loadUniqueHostsDatalist() {
-    const datalist = document.getElementById('vuln-hosts-datalist');
-    if (!datalist) return;
+  // Dropdowns Multi-Seleção e Hosts no Explorador de Vulnerabilidades
+  toggleSevDropdown(e) {
+    if (e) e.stopPropagation();
+    const dropdown = document.getElementById('vuln-sev-dropdown');
+    if (!dropdown) return;
+    const isHidden = dropdown.classList.contains('hidden');
+    document.getElementById('vuln-os-dropdown')?.classList.add('hidden');
+    dropdown.classList.toggle('hidden', !isHidden);
+  },
+
+  toggleOsDropdown(e) {
+    if (e) e.stopPropagation();
+    const dropdown = document.getElementById('vuln-os-dropdown');
+    if (!dropdown) return;
+    const isHidden = dropdown.classList.contains('hidden');
+    document.getElementById('vuln-sev-dropdown')?.classList.add('hidden');
+    dropdown.classList.toggle('hidden', !isHidden);
+    if (isHidden) {
+      setTimeout(() => document.getElementById('vuln-os-search-input')?.focus(), 50);
+    }
+  },
+
+  onSevCheckboxChange() {
+    const checked = Array.from(document.querySelectorAll('.vuln-sev-cb:checked')).map(cb => cb.value);
+    this.state.selectedVulnSeverities = checked;
+    this.updateSevBtnLabel();
+    this.state.vulnPage = 1;
+    this.loadVulnerabilitiesList();
+  },
+
+  updateSevBtnLabel() {
+    const labelEl = document.getElementById('vuln-sev-btn-label');
+    if (!labelEl) return;
+    const selected = this.state.selectedVulnSeverities || [];
+    const allCount = 5; // Critical, High, Medium, Low, Info
+    const hasDefault = selected.length === 4 &&
+      selected.includes('Critical') && selected.includes('High') &&
+      selected.includes('Medium') && selected.includes('Low');
+
+    if (hasDefault) {
+      labelEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span><span class="truncate">Crítica, Alta, Média, Baixa</span>`;
+    } else if (selected.length === allCount) {
+      labelEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-slate-500 shrink-0"></span><span class="truncate">Todas Severidades (5)</span>`;
+    } else if (selected.length === 0) {
+      labelEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"></span><span class="truncate text-slate-400">Nenhuma Severidade</span>`;
+    } else {
+      const ptMap = { Critical: 'Crítica', High: 'Alta', Medium: 'Média', Low: 'Baixa', Info: 'Info' };
+      const names = selected.map(s => ptMap[s] || s).join(', ');
+      labelEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-teal-500 shrink-0"></span><span class="truncate">${this.escapeHtml(names)} (${selected.length})</span>`;
+    }
+  },
+
+  setAllSeverities(selectAll) {
+    document.querySelectorAll('.vuln-sev-cb').forEach(cb => {
+      cb.checked = selectAll;
+    });
+    this.state.selectedVulnSeverities = selectAll ? ['Critical', 'High', 'Medium', 'Low', 'Info'] : [];
+    this.updateSevBtnLabel();
+    this.state.vulnPage = 1;
+    this.loadVulnerabilitiesList();
+  },
+
+  setDefaultSeverities() {
+    document.querySelectorAll('.vuln-sev-cb').forEach(cb => {
+      cb.checked = ['Critical', 'High', 'Medium', 'Low'].includes(cb.value);
+    });
+    this.state.selectedVulnSeverities = ['Critical', 'High', 'Medium', 'Low'];
+    this.updateSevBtnLabel();
+    this.state.vulnPage = 1;
+    this.loadVulnerabilitiesList();
+  },
+
+  async loadUniqueOSList() {
+    const container = document.getElementById('vuln-os-checkboxes-container');
+    if (!container) return;
+    try {
+      const osList = await API.getUniqueOS(this.state.selectedAssetGroupId || '');
+      this.state.vulnUniqueOSList = osList || [];
+      if (!osList || osList.length === 0) {
+        container.innerHTML = `<span class="text-slate-400 italic text-[11px] p-2 block text-center">Nenhum SO identificado</span>`;
+        return;
+      }
+      const selected = new Set(this.state.selectedVulnOS || []);
+      container.innerHTML = osList.map(osName => {
+        const isChecked = selected.has(osName) ? 'checked' : '';
+        return `
+          <label class="vuln-os-item flex items-center space-x-2 p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer text-xs" data-os="${this.escapeHtml(osName.toLowerCase())}">
+            <input type="checkbox" value="${this.escapeHtml(osName)}" class="vuln-os-cb rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5 shrink-0" ${isChecked} onchange="App.onOsCheckboxChange()">
+            <span class="text-slate-700 dark:text-slate-300 text-xs truncate" title="${this.escapeHtml(osName)}">${this.escapeHtml(osName)}</span>
+          </label>
+        `;
+      }).join('');
+      this.updateOsBtnLabel();
+    } catch (e) {
+      console.warn('Falha ao carregar lista de SOs únicos:', e);
+    }
+  },
+
+  onOsCheckboxChange() {
+    const checked = Array.from(document.querySelectorAll('.vuln-os-cb:checked')).map(cb => cb.value);
+    this.state.selectedVulnOS = checked;
+    this.updateOsBtnLabel();
+    this.state.vulnPage = 1;
+    this.loadVulnerabilitiesList();
+  },
+
+  updateOsBtnLabel() {
+    const labelEl = document.getElementById('vuln-os-btn-label');
+    if (!labelEl) return;
+    const selected = this.state.selectedVulnOS || [];
+    if (selected.length === 0) {
+      labelEl.innerHTML = `<i data-lucide="cpu" class="w-3.5 h-3.5 text-teal-600 dark:text-cyan-400 shrink-0"></i><span class="truncate">Todos os SOs</span>`;
+    } else if (selected.length === 1) {
+      labelEl.innerHTML = `<i data-lucide="cpu" class="w-3.5 h-3.5 text-teal-600 dark:text-cyan-400 shrink-0"></i><span class="truncate" title="${this.escapeHtml(selected[0])}">${this.escapeHtml(selected[0])}</span>`;
+    } else {
+      labelEl.innerHTML = `<i data-lucide="cpu" class="w-3.5 h-3.5 text-teal-600 dark:text-cyan-400 shrink-0"></i><span class="truncate">${selected.length} SOs selecionados</span>`;
+    }
+    if (window.lucide && typeof lucide.createIcons === 'function') {
+      try { lucide.createIcons(); } catch(e) {}
+    }
+  },
+
+  setAllOS(selectAll) {
+    document.querySelectorAll('.vuln-os-cb').forEach(cb => {
+      cb.checked = selectAll;
+    });
+    this.state.selectedVulnOS = selectAll ? [...(this.state.vulnUniqueOSList || [])] : [];
+    this.updateOsBtnLabel();
+    this.state.vulnPage = 1;
+    this.loadVulnerabilitiesList();
+  },
+
+  filterOsList(query) {
+    const q = (query || '').trim().toLowerCase();
+    const items = document.querySelectorAll('.vuln-os-item');
+    items.forEach(el => {
+      const osName = el.getAttribute('data-os') || '';
+      if (!q || osName.includes(q)) {
+        el.classList.remove('hidden');
+      } else {
+        el.classList.add('hidden');
+      }
+    });
+  },
+
+  async loadUniqueHostsDropdown() {
+    const select = document.getElementById('vuln-host-filter');
+    if (!select) return;
+    const currentVal = select.value;
     try {
       const hosts = await API.getUniqueHosts(this.state.selectedAssetGroupId || '');
+      let html = '<option value="">Todos os Hosts / IPs</option>';
       if (Array.isArray(hosts)) {
-        datalist.innerHTML = hosts.map(h => {
-          const label = h.hostname ? `${h.ip} (${h.hostname})` : h.ip;
-          return `<option value="${h.ip}">${label}</option>`;
-        }).join('');
+        hosts.forEach(h => {
+          const label = h.hostname ? `${h.ip} — ${h.hostname}` : h.ip;
+          html += `<option value="${this.escapeHtml(h.ip)}">${this.escapeHtml(label)}</option>`;
+        });
+      }
+      select.innerHTML = html;
+      if (currentVal) {
+        select.value = currentVal;
       }
     } catch (e) {
       console.warn('Falha ao carregar lista de hosts únicos:', e);
     }
   },
 
+  async loadUniqueHostsDatalist() {
+    return Promise.all([
+      this.loadUniqueHostsDropdown(),
+      this.loadUniqueOSList()
+    ]);
+  },
+
   setHostFilter(host) {
     const filterInput = document.getElementById('vuln-host-filter');
-    if (filterInput) filterInput.value = host;
+    if (filterInput) {
+      filterInput.value = host || '';
+      if (host && filterInput.value !== host) {
+        const opt = document.createElement('option');
+        opt.value = host;
+        opt.textContent = host;
+        filterInput.appendChild(opt);
+        filterInput.value = host;
+      }
+    }
     this.state.vulnPage = 1;
     this.loadVulnerabilitiesList();
   },
@@ -2922,17 +3193,29 @@ const App = {
   clearAllVulnFilters(reload = true) {
     const searchInput = document.getElementById('vuln-search-input');
     const hostFilter = document.getElementById('vuln-host-filter');
-    const sevFilter = document.getElementById('vuln-sev-filter');
     const exploitFilter = document.getElementById('vuln-exploit-filter');
     const treatFilter = document.getElementById('vuln-treatment-filter');
     const orphanFilter = document.getElementById('vuln-orphan-filter');
 
     if (searchInput) searchInput.value = '';
     if (hostFilter) hostFilter.value = '';
-    if (sevFilter) sevFilter.value = '';
     if (exploitFilter) exploitFilter.value = '';
     if (treatFilter) treatFilter.value = '';
     if (orphanFilter) orphanFilter.checked = false;
+
+    // Reseta severidades para o padrão (Critical, High, Medium, Low)
+    document.querySelectorAll('.vuln-sev-cb').forEach(cb => {
+      cb.checked = ['Critical', 'High', 'Medium', 'Low'].includes(cb.value);
+    });
+    this.state.selectedVulnSeverities = ['Critical', 'High', 'Medium', 'Low'];
+    this.updateSevBtnLabel();
+
+    // Reseta filtros de SO
+    document.querySelectorAll('.vuln-os-cb').forEach(cb => {
+      cb.checked = false;
+    });
+    this.state.selectedVulnOS = [];
+    this.updateOsBtnLabel();
 
     this.state.vulnPage = 1;
     if (reload) {
@@ -2956,10 +3239,15 @@ const App = {
 
   setSeverityQuickFilter(sev) {
     this.clearAllVulnFilters(false);
-    const sevFilter = document.getElementById('vuln-sev-filter');
-    if (sevFilter) {
-      sevFilter.value = sev || '';
+    if (sev) {
+      document.querySelectorAll('.vuln-sev-cb').forEach(cb => {
+        cb.checked = cb.value.toLowerCase() === sev.toLowerCase();
+      });
+      this.state.selectedVulnSeverities = [sev];
+    } else {
+      this.setDefaultSeverities();
     }
+    this.updateSevBtnLabel();
     this.state.vulnPage = 1;
     this.navigate('vulnerabilities');
   },
@@ -4421,27 +4709,86 @@ const App = {
       document.getElementById('modal-treatment-status').value = v.treatment_status;
       document.getElementById('modal-treatment-notes').value = v.treatment_notes || '';
 
-      // Auditor Mode: disable treatment controls and hide save/plan buttons
+      // Auditor Mode & Plan Association Check
       const isAuditor = (this.state.user?.role || '').toLowerCase() === 'auditor';
+      const isPlanLinked = Boolean(v.active_action_plan_id || v.treatment_status === 'In_Action_Plan');
+
       const statusSelect = document.getElementById('modal-treatment-status');
       const notesInput = document.getElementById('modal-treatment-notes');
       const saveBtn = document.getElementById('btn-save-treatment');
       const planBtn = document.getElementById('vuln-modal-create-plan-btn');
       const auditorBadge = document.getElementById('modal-treatment-auditor-badge');
+      const planLockedBadge = document.getElementById('modal-treatment-plan-locked-badge');
+      const planLockedDesc = document.getElementById('modal-treatment-plan-locked-desc');
 
-      if (statusSelect) statusSelect.disabled = isAuditor;
-      if (notesInput) notesInput.disabled = isAuditor;
-      if (saveBtn) {
-        if (isAuditor) saveBtn.classList.add('hidden');
-        else saveBtn.classList.remove('hidden');
-      }
-      if (planBtn) {
-        if (isAuditor) planBtn.classList.add('hidden');
-        else planBtn.classList.remove('hidden');
-      }
-      if (auditorBadge) {
-        if (isAuditor) auditorBadge.classList.remove('hidden');
-        else auditorBadge.classList.add('hidden');
+      // Garante que a opção In_Action_Plan permaneça desabilitada para seleção direta
+      const inActionPlanOpt = statusSelect?.querySelector('option[value="In_Action_Plan"]');
+      if (inActionPlanOpt) inActionPlanOpt.disabled = true;
+
+      if (isAuditor) {
+        if (statusSelect) {
+          statusSelect.disabled = true;
+          statusSelect.title = 'Acesso somente leitura (Perfil Auditor)';
+        }
+        if (notesInput) {
+          notesInput.disabled = true;
+          notesInput.title = 'Acesso somente leitura (Perfil Auditor)';
+        }
+        if (saveBtn) saveBtn.classList.add('hidden');
+        if (planBtn) planBtn.classList.add('hidden');
+        if (auditorBadge) auditorBadge.classList.remove('hidden');
+        if (planLockedBadge) planLockedBadge.classList.add('hidden');
+      } else if (isPlanLinked) {
+        // Bloqueia edição de Status e Justificativa quando associada a um plano de ação
+        if (statusSelect) {
+          statusSelect.disabled = true;
+          statusSelect.title = 'Status bloqueado: gerenciado exclusivamente pelo Plano de Ação vinculado.';
+        }
+        if (notesInput) {
+          notesInput.disabled = true;
+          notesInput.title = 'Nota bloqueada: o tratamento é governado pelo Plano de Ação.';
+          notesInput.classList.add('opacity-60', 'cursor-not-allowed', 'bg-slate-100', 'dark:bg-slate-800/60');
+        }
+        if (saveBtn) {
+          saveBtn.classList.remove('hidden');
+          saveBtn.disabled = true;
+          saveBtn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+          saveBtn.classList.remove('hover:bg-teal-800', 'cursor-pointer');
+          saveBtn.title = 'Tratamento gerenciado exclusivamente pelo Plano de Ação vinculado.';
+        }
+        if (planBtn) planBtn.classList.add('hidden');
+        if (auditorBadge) auditorBadge.classList.add('hidden');
+        if (planLockedBadge) {
+          planLockedBadge.classList.remove('hidden');
+          if (planLockedDesc) {
+            planLockedDesc.textContent = v.active_action_plan_id
+              ? `Esta vulnerabilidade está associada ao Plano de Ação #${v.active_action_plan_id}${v.active_action_plan_title ? ` (${v.active_action_plan_title})` : ''}. O status de tratamento e as justificativas são gerenciados exclusivamente pelo fluxo do plano até sua conclusão/remediação.`
+              : 'Esta vulnerabilidade está sob governança de um plano de ação. O tratamento é gerenciado exclusivamente pelo plano até sua conclusão/remediação.';
+          }
+        }
+      } else {
+        if (statusSelect) {
+          statusSelect.disabled = false;
+          statusSelect.title = '';
+        }
+        if (notesInput) {
+          notesInput.disabled = false;
+          notesInput.title = '';
+          notesInput.classList.remove('opacity-60', 'cursor-not-allowed', 'bg-slate-100', 'dark:bg-slate-800/60');
+        }
+        if (saveBtn) {
+          saveBtn.classList.remove('hidden', 'opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+          saveBtn.classList.add('hover:bg-teal-800', 'cursor-pointer');
+          saveBtn.disabled = false;
+          saveBtn.title = '';
+        }
+        const tStatus = (v.treatment_status || '').toLowerCase();
+        if (planBtn) {
+          if (tStatus === 'open') planBtn.classList.remove('hidden');
+          else planBtn.classList.add('hidden');
+        }
+        if (auditorBadge) auditorBadge.classList.add('hidden');
+        if (planLockedBadge) planLockedBadge.classList.add('hidden');
       }
 
       const auditUser = document.getElementById('modal-treatment-user');
@@ -4523,8 +4870,20 @@ const App = {
       alert('Acesso negado: auditores possuem acesso somente leitura e não podem alterar status de tratamento.');
       return;
     }
+    const currentVuln = this.state.currentVulnModalData;
+    if (currentVuln && (currentVuln.active_action_plan_id || currentVuln.treatment_status === 'In_Action_Plan')) {
+      alert('Não é possível salvar: esta vulnerabilidade está associada a um plano de ação e seu status é gerenciado exclusivamente pelo plano.');
+      return;
+    }
+
     const vulnId = document.getElementById('modal-vuln-id').value;
     const status = document.getElementById('modal-treatment-status').value;
+
+    if (status === 'In_Action_Plan') {
+      alert('A opção "Em Plano de Ação" não pode ser selecionada diretamente neste formulário. A vinculação ocorre somente mediante a criação de um plano de ação.');
+      return;
+    }
+
     const notesInput = document.getElementById('modal-treatment-notes');
     const notes = notesInput ? notesInput.value.trim() : '';
     const notesError = document.getElementById('modal-treatment-notes-error');
@@ -4933,10 +5292,18 @@ const App = {
         if (!vulns || vulns.length === 0) {
           tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-500">Nenhuma vulnerabilidade acionável (Crítica, Alta, Média ou Baixa) encontrada para este host.</td></tr>`;
         } else {
-          tbody.innerHTML = vulns.map(v => `
-            <tr class="hover:bg-slate-800/40 transition">
+          tbody.innerHTML = vulns.map(v => {
+            const isRemediated = (v.treatment_status || '').toLowerCase() === 'remediated';
+            const statusBadge = isRemediated 
+              ? '<span class="inline-flex items-center text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5"><i data-lucide="check-circle" class="w-3 h-3 mr-1 inline"></i>Remediada</span>' 
+              : '';
+            return `
+            <tr class="hover:bg-slate-800/40 transition ${isRemediated ? 'opacity-60' : ''}">
               <td><span class="badge-${(v.severity || 'low').toLowerCase()} px-2 py-0.5 rounded text-xs font-bold">${v.severity}</span></td>
-              <td class="font-medium text-slate-200 text-sm">${v.plugin_name}</td>
+              <td class="font-medium text-slate-200 text-sm">
+                <div>${this.escapeHtml(v.plugin_name)}</div>
+                ${statusBadge}
+              </td>
               <td>${this.formatCveBadge(v.cve, v.cve_list, v.cve_count)}</td>
               <td class="text-xs font-mono text-slate-400">${v.port}/${v.protocol}</td>
               <td class="text-center">${v.exploit_available ? '<span class="badge-exploit px-2 py-0.5 rounded text-xs font-bold">SIM</span>' : '<span class="text-slate-500 text-xs">Não</span>'}</td>
@@ -4944,7 +5311,8 @@ const App = {
                 <button onclick="App.openVulnDetailsModal(${v.id})" class="px-2.5 py-1 text-xs rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900 cursor-pointer font-semibold transition">Ver</button>
               </td>
             </tr>
-          `).join('');
+            `;
+          }).join('');
         }
       }
       this.renderHostActionPlanCard(host);
@@ -6616,9 +6984,8 @@ const App = {
   async handlePlanFormAssetGroupChange() {
     this.state.planWizardSelectedHosts = [];
     this.state.planWizardSelectedPlugins = [];
-    this.state.planWizardHostOsFilter = '';
-    const osSelect = document.getElementById('plan-wizard-host-os-filter');
-    if (osSelect) osSelect.value = '';
+    this.state.planWizardHostOsFilter = [];
+    this.updateWizardHostOsBtnLabel();
     this.renderWizardSelectedHosts();
     this.renderWizardSelectedPlugins();
     const groupId = document.getElementById('plan-form-asset-group')?.value || '';
@@ -6699,33 +7066,102 @@ const App = {
     }
   },
 
-  // --- HOST SELECTION (ETAPA 2) ---
-  async loadWizardOsOptions(groupId) {
-    const osSelect = document.getElementById('plan-wizard-host-os-filter');
-    if (!osSelect) return;
-
-    try {
-      const osList = await API.getWizardOsList(groupId || '');
-      const currentSelected = this.state.planWizardHostOsFilter || '';
-
-      let html = '<option value="">SO: Todos os Sistemas</option>';
-      (osList || []).forEach(os => {
-        const sel = (os === currentSelected) ? 'selected' : '';
-        html += `<option value="${this.escapeHtml(os)}" ${sel}>${this.escapeHtml(os)}</option>`;
-      });
-      osSelect.innerHTML = html;
-      if (!osList.includes(currentSelected)) {
-        this.state.planWizardHostOsFilter = '';
-        osSelect.value = '';
-      }
-    } catch (e) {
-      console.warn('Erro ao carregar lista de SOs do wizard:', e);
-      osSelect.innerHTML = '<option value="">SO: Todos os Sistemas</option>';
+  // --- HOST SELECTION (ETAPA 2) MULTI-SELECT OS ---
+  toggleWizardHostOsDropdown(e) {
+    if (e) e.stopPropagation();
+    const dropdown = document.getElementById('plan-wizard-host-os-dropdown');
+    if (!dropdown) return;
+    const isHidden = dropdown.classList.contains('hidden');
+    dropdown.classList.toggle('hidden', !isHidden);
+    if (isHidden) {
+      setTimeout(() => document.getElementById('plan-wizard-os-search-input')?.focus(), 50);
     }
   },
 
+  async loadWizardOsOptions(groupId) {
+    const container = document.getElementById('plan-wizard-os-checkboxes-container');
+    if (!container) return;
+
+    try {
+      const osList = await API.getWizardOsList(groupId || '');
+      this.state.planWizardUniqueOsList = osList || [];
+      const currentSelected = new Set(this.state.planWizardHostOsFilter || []);
+
+      if (!osList || osList.length === 0) {
+        container.innerHTML = '<span class="text-slate-400 italic text-[11px] p-2 block text-center">Nenhum SO identificado</span>';
+        this.state.planWizardHostOsFilter = [];
+        this.updateWizardHostOsBtnLabel();
+        return;
+      }
+
+      container.innerHTML = osList.map(osName => {
+        const isChecked = currentSelected.has(osName) ? 'checked' : '';
+        return `
+          <label class="plan-wizard-os-item flex items-center space-x-2 p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer text-xs" data-os="${this.escapeHtml(osName.toLowerCase())}">
+            <input type="checkbox" value="${this.escapeHtml(osName)}" class="plan-wizard-os-cb rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5 shrink-0" ${isChecked} onchange="App.onWizardHostOsCheckboxChange()">
+            <span class="text-slate-700 dark:text-slate-300 text-xs truncate" title="${this.escapeHtml(osName)}">${this.escapeHtml(osName)}</span>
+          </label>
+        `;
+      }).join('');
+
+      this.state.planWizardHostOsFilter = (this.state.planWizardHostOsFilter || []).filter(os => osList.includes(os));
+      this.updateWizardHostOsBtnLabel();
+    } catch (e) {
+      console.warn('Erro ao carregar lista de SOs do wizard:', e);
+      container.innerHTML = '<span class="text-slate-400 italic text-[11px] p-2 block text-center">Nenhum SO identificado</span>';
+    }
+  },
+
+  onWizardHostOsCheckboxChange() {
+    const checked = Array.from(document.querySelectorAll('.plan-wizard-os-cb:checked')).map(cb => cb.value);
+    this.state.planWizardHostOsFilter = checked;
+    this.updateWizardHostOsBtnLabel();
+    const searchVal = document.getElementById('plan-wizard-host-search')?.value || '';
+    this.loadWizardCandidateHosts(searchVal);
+  },
+
+  updateWizardHostOsBtnLabel() {
+    const labelEl = document.getElementById('plan-wizard-host-os-filter-label');
+    if (!labelEl) return;
+    const selected = this.state.planWizardHostOsFilter || [];
+    if (selected.length === 0) {
+      labelEl.innerHTML = `<i data-lucide="cpu" class="w-3.5 h-3.5 text-teal-600 dark:text-cyan-400 shrink-0"></i><span class="truncate">SO: Todos os Sistemas</span>`;
+    } else if (selected.length === 1) {
+      labelEl.innerHTML = `<i data-lucide="cpu" class="w-3.5 h-3.5 text-teal-600 dark:text-cyan-400 shrink-0"></i><span class="truncate" title="${this.escapeHtml(selected[0])}">SO: ${this.escapeHtml(selected[0])}</span>`;
+    } else {
+      labelEl.innerHTML = `<i data-lucide="cpu" class="w-3.5 h-3.5 text-teal-600 dark:text-cyan-400 shrink-0"></i><span class="truncate">SO: ${selected.length} selecionados</span>`;
+    }
+    if (window.lucide && typeof lucide.createIcons === 'function') {
+      try { lucide.createIcons(); } catch(e) {}
+    }
+  },
+
+  setAllWizardHostOS(selectAll) {
+    document.querySelectorAll('.plan-wizard-os-cb').forEach(cb => {
+      cb.checked = selectAll;
+    });
+    this.state.planWizardHostOsFilter = selectAll ? [...(this.state.planWizardUniqueOsList || [])] : [];
+    this.updateWizardHostOsBtnLabel();
+    const searchVal = document.getElementById('plan-wizard-host-search')?.value || '';
+    this.loadWizardCandidateHosts(searchVal);
+  },
+
+  filterWizardOsList(query) {
+    const q = (query || '').trim().toLowerCase();
+    const items = document.querySelectorAll('.plan-wizard-os-item');
+    items.forEach(el => {
+      const osName = el.getAttribute('data-os') || '';
+      if (!q || osName.includes(q)) {
+        el.classList.remove('hidden');
+      } else {
+        el.classList.add('hidden');
+      }
+    });
+  },
+
   handleWizardHostOsChange(val) {
-    this.state.planWizardHostOsFilter = val || '';
+    this.state.planWizardHostOsFilter = val ? [val] : [];
+    this.updateWizardHostOsBtnLabel();
     const searchVal = document.getElementById('plan-wizard-host-search')?.value || '';
     this.loadWizardCandidateHosts(searchVal);
   },
@@ -6748,7 +7184,9 @@ const App = {
     try {
       const groupId = document.getElementById('plan-form-asset-group')?.value || '';
       const planId = document.getElementById('action-plan-id')?.value || '';
-      const osFilter = this.state.planWizardHostOsFilter || '';
+      const osFilter = Array.isArray(this.state.planWizardHostOsFilter)
+        ? this.state.planWizardHostOsFilter.join(',')
+        : (this.state.planWizardHostOsFilter || '');
       const hosts = await API.getWizardHosts(groupId, search, planId, osFilter);
       this.state.planWizardCandidateHosts = hosts || [];
       this.renderWizardCandidateHosts();
@@ -7270,10 +7708,9 @@ const App = {
     this.state.planWizardSelectedHosts = [];
     this.state.planWizardSelectedPlugins = [];
     this.state.planWizardVulnMode = 'ALL';
-    this.state.planWizardHostOsFilter = '';
+    this.state.planWizardHostOsFilter = [];
+    this.updateWizardHostOsBtnLabel();
 
-    const osSelect = document.getElementById('plan-wizard-host-os-filter');
-    if (osSelect) osSelect.value = '';
     const hostSearch = document.getElementById('plan-wizard-host-search');
     if (hostSearch) hostSearch.value = '';
 
@@ -7463,9 +7900,8 @@ const App = {
       }
       document.getElementById('plan-form-due-date').value = p.due_date ? p.due_date.substring(0, 10) : '';
 
-      this.state.planWizardHostOsFilter = '';
-      const osSelect = document.getElementById('plan-wizard-host-os-filter');
-      if (osSelect) osSelect.value = '';
+      this.state.planWizardHostOsFilter = [];
+      this.updateWizardHostOsBtnLabel();
       const hostSearch = document.getElementById('plan-wizard-host-search');
       if (hostSearch) hostSearch.value = '';
 

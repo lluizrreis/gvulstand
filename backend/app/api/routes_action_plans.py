@@ -1259,7 +1259,12 @@ def get_wizard_hosts(
         query = query.filter(models.Host.asset_group_id.in_(target_gids))
 
     if os and os.strip():
-        query = query.filter(models.Host.os.ilike(f"%{os.strip()}%"))
+        os_list = [o.strip() for o in os.split(",") if o.strip()]
+        if len(os_list) == 1:
+            query = query.filter(models.Host.os.ilike(f"%{os_list[0]}%"))
+        elif len(os_list) > 1:
+            os_clauses = [models.Host.os.ilike(f"%{target_os}%") for target_os in os_list]
+            query = query.filter(or_(*os_clauses))
 
     if search and search.strip():
         term = f"%{search.strip()}%"

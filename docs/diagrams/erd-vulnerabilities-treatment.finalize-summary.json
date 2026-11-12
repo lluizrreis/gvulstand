@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "erd",
+  "quality": "showcase",
+  "specification": {
+    "path": "/home/ubnt/gvulstand/.archify/erd-vulnerabilities-treatment-20261107-123200/candidate.json",
+    "sha256": "8c21a4765bc56590c8cd36515de8b259e8c942377f2d46c8c124e17f6c08dd8f",
+    "bytes": 9246
+  },
+  "artifact": {
+    "path": "/home/ubnt/gvulstand/docs/diagrams/erd-vulnerabilities-treatment.html",
+    "sha256": "658b274e6df60ff73d048dadce61b0ec89511879ba60589b95a21885dd4a2240",
+    "bytes": 886867
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/home/ubnt/gvulstand/docs/diagrams/erd-vulnerabilities-treatment.finalize.json",
+    "summaryReceipt": "/home/ubnt/gvulstand/docs/diagrams/erd-vulnerabilities-treatment.finalize-summary.json",
+    "browserCheckReceipt": "/home/ubnt/gvulstand/docs/diagrams/erd-vulnerabilities-treatment.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-11-07T15:33:35.540Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 4593,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  },
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "routesOverSuggestedBends": 1,
+      "routesOverSuggestedStretch": 1
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [],
+      "detours": [
+        {
+          "relationship": {
+            "id": "rel_vulns_asset_group",
+            "from": "vulnerabilities",
+            "to": "asset_groups",
+            "label": "scoped to",
+            "collectionIndex": 5,
+            "artifactIndex": 6
+          },
+          "bends": 4,
+          "stretch": 1.429
+        }
+      ],
+      "truncated": false
+    },
+    "repair": "Advisory only: this mode places or routes these relationships itself. Report them; do not remove relationships or meaning to reduce crossings."
+  }
+}

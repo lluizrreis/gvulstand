@@ -319,6 +319,11 @@ const API = {
     return this.request(`/vulnerabilities/unique-hosts${query}`);
   },
 
+  async getUniqueOS(assetGroupId = '') {
+    const query = assetGroupId ? `?asset_group_id=${assetGroupId}` : '';
+    return this.request(`/vulnerabilities/unique-os${query}`);
+  },
+
   async listInventory(params = {}) {
     const query = new URLSearchParams();
     if (params.asset_group_id) query.append('asset_group_id', params.asset_group_id);

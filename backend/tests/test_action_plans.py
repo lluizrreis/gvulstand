@@ -1806,6 +1806,12 @@ def test_action_plan_wizard_os_list_and_filter():
         assert res_none_hosts.status_code == 200
         assert len(res_none_hosts.json()) == 0
 
+        # 7. Testa filtro com multi-seleção de SOs (Ubuntu,Windows)
+        res_multi_hosts = client.get(f"/api/action-plans/wizard/hosts?asset_group_id={group_id}&os=Ubuntu,Windows", headers=headers)
+        assert res_multi_hosts.status_code == 200
+        multi_hosts = res_multi_hosts.json()
+        assert len(multi_hosts) == 2
+
     finally:
         # Cleanup
         db = SessionLocal()
@@ -2005,6 +2011,151 @@ def test_action_plan_auto_remediation_and_persistence_on_scan_import():
         db.delete(grp)
     db.commit()
     db.close()
+
+
+def test_treatment_locking_when_linked_to_action_plan():
+    """
+    Testa a regra de negócio ISO 27001 / WBS:
+    1. O status 'In_Action_Plan' não pode ser selecionado diretamente/manualmente via formulário/API.
+    2. Vulnerabilidade vinculada a um plano de ação ativo não permite alteração manual de tratamento,
+       sendo tratada exclusivamente através do fluxo do plano de ação.
+    3. Bulk treatment também protege vulnerabilidades vinculadas a planos de ação.
+    """
+    db = SessionLocal()
+    token = get_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    import uuid
+    uid = uuid.uuid4().hex[:8]
+    grp = models.AssetGroup(name=f"Grupo Lock {uid}", description="Teste Lock Tratativa")
+    db.add(grp)
+    db.commit()
+    db.refresh(grp)
+    gid = grp.id
+
+    scan = models.Scan(filename="scan_lock_treatment.csv", scan_name="Scan Test Lock", asset_group_id=gid)
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+
+    host = models.Host(scan_id=scan.id, ip_address="192.168.100.50", hostname="srv-lock-test", asset_group_id=gid)
+    db.add(host)
+    db.commit()
+    db.refresh(host)
+
+    v1 = models.Vulnerability(
+        scan_id=scan.id,
+        host_id=host.id,
+        asset_group_id=gid,
+        plugin_id="999901",
+        plugin_name="Vulnerabilidade de Teste de Bloqueio",
+        severity="High",
+        treatment_status="Open"
+    )
+    v2 = models.Vulnerability(
+        scan_id=scan.id,
+        host_id=host.id,
+        asset_group_id=gid,
+        plugin_id="999902",
+        plugin_name="Vulnerabilidade Desvinculada Teste",
+        severity="Medium",
+        treatment_status="Open"
+    )
+    db.add(v1)
+    db.add(v2)
+    db.commit()
+    db.refresh(v1)
+    db.refresh(v2)
+    v1_id = v1.id
+    v2_id = v2.id
+
+    # 1. Tentativa de selecionar 'In_Action_Plan' diretamente em vuln desvinculada (v2) -> 400
+    res_direct_in_plan = client.patch(
+        f"/api/vulnerabilities/{v2_id}/treatment",
+        json={"treatment_status": "In_Action_Plan", "treatment_notes": "Tentando marcar manualmente"},
+        headers=headers
+    )
+    assert res_direct_in_plan.status_code == 400
+    assert "não pode ser selecionado manualmente" in res_direct_in_plan.json()["detail"]
+
+    # 2. Tentativa de bulk com 'In_Action_Plan' -> 400
+    res_bulk_in_plan = client.post(
+        "/api/vulnerabilities/bulk-treatment",
+        json={"vulnerability_ids": [v2_id], "treatment_status": "In_Action_Plan", "treatment_notes": "Bulk inválido"},
+        headers=headers
+    )
+    assert res_bulk_in_plan.status_code == 400
+    assert "não pode ser selecionado manualmente" in res_bulk_in_plan.json()["detail"]
+
+    # 3. Tratativa normal em vulnerabilidade desvinculada (v2: Open -> In_Remediation) -> 200 OK
+    res_treat_ok = client.patch(
+        f"/api/vulnerabilities/{v2_id}/treatment",
+        json={"treatment_status": "In_Remediation", "treatment_notes": "Tratando normalmente vulnerabilidade desvinculada"},
+        headers=headers
+    )
+    assert res_treat_ok.status_code == 200
+    assert res_treat_ok.json()["treatment_status"] == "In_Remediation"
+
+    # 4. Cria plano de ação vinculando v1
+    plan_payload = {
+        "title": "Plano de Remediação com Lock",
+        "scope_type": "VULNERABILITY",
+        "target_plugin_id": "999901",
+        "target_plugin_name": "Vulnerabilidade de Teste de Bloqueio",
+        "target_host_id": host.id,
+        "target_host_ip": "192.168.100.50",
+        "target_host_name": "srv-lock-test",
+        "tasks": [
+            {
+                "title": "Aplicar Patch de Segurança",
+                "description": "Atualizar biblioteca vulnerável",
+                "phase": "EXECUTION",
+                "task_order": 1,
+                "vulnerability_ids": [v1_id]
+            }
+        ]
+    }
+    create_plan_res = client.post("/api/action-plans", json=plan_payload, headers=headers)
+    assert create_plan_res.status_code in [200, 201]
+    plan_id = create_plan_res.json()["id"]
+
+    # Verifica via API que v1 passou para In_Action_Plan e tem active_action_plan_id
+    v1_get = client.get(f"/api/vulnerabilities/{v1_id}", headers=headers)
+    assert v1_get.status_code == 200
+    assert v1_get.json()["treatment_status"] == "In_Action_Plan"
+    assert v1_get.json()["active_action_plan_id"] == plan_id
+
+    # 5. Tentativa de alterar o tratamento de v1 enquanto associada ao plano -> 400 Bloqueado
+    res_blocked_patch = client.patch(
+        f"/api/vulnerabilities/{v1_id}/treatment",
+        json={"treatment_status": "Accepted_Risk", "treatment_notes": "Tentando burlar o plano de ação"},
+        headers=headers
+    )
+    assert res_blocked_patch.status_code == 400
+    assert "associada a um plano de ação" in res_blocked_patch.json()["detail"]
+
+    # 6. Tentativa de bulk-treatment incluindo v1 enquanto associada ao plano -> 400 Bloqueado
+    res_blocked_bulk = client.post(
+        "/api/vulnerabilities/bulk-treatment",
+        json={"vulnerability_ids": [v1_id], "treatment_status": "Remediated", "treatment_notes": "Tentando bulk em plano"},
+        headers=headers
+    )
+    assert res_blocked_bulk.status_code == 400
+    assert "associadas a Planos de Ação" in res_blocked_bulk.json()["detail"]
+
+    # Limpeza
+    client.delete(f"/api/action-plans/{plan_id}", headers=headers)
+    db.query(models.ActionTaskVulnerabilityLink).filter(models.ActionTaskVulnerabilityLink.vulnerability_id.in_([v1_id, v2_id])).delete(synchronize_session=False)
+    db.query(models.VulnerabilityTreatmentHistory).filter(models.VulnerabilityTreatmentHistory.vulnerability_id.in_([v1_id, v2_id])).delete(synchronize_session=False)
+    db.query(models.Vulnerability).filter(models.Vulnerability.asset_group_id == gid).delete(synchronize_session=False)
+    db.query(models.Host).filter(models.Host.asset_group_id == gid).delete(synchronize_session=False)
+    db.query(models.Scan).filter(models.Scan.asset_group_id == gid).delete(synchronize_session=False)
+    grp_del = db.query(models.AssetGroup).filter(models.AssetGroup.id == gid).first()
+    if grp_del:
+        db.delete(grp_del)
+    db.commit()
+    db.close()
+
 
 
 

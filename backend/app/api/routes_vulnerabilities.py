@@ -3,7 +3,7 @@ import math
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Set
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, func
+from sqlalchemy import case, func, and_, or_
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models, schemas
@@ -118,6 +118,7 @@ def list_vulnerabilities(
     host_id: Optional[int] = None,
     host: Optional[str] = None,
     severity: Optional[str] = None,
+    os: Optional[str] = None,
     exclude_info: bool = False,
     exploit_only: bool = False,
     has_exploit: Optional[str] = None,
@@ -176,9 +177,19 @@ def list_vulnerabilities(
             )
 
     if severity:
-        query = query.filter(models.Vulnerability.severity == severity)
+        sev_list = [s.strip() for s in severity.split(",") if s.strip()]
+        if len(sev_list) == 1:
+            query = query.filter(models.Vulnerability.severity == sev_list[0])
+        elif len(sev_list) > 1:
+            query = query.filter(models.Vulnerability.severity.in_(sev_list))
     elif exclude_info:
         query = query.filter(models.Vulnerability.severity.notin_(["Info", "None", "none", "info"]))
+
+    if os:
+        os_list = [o.strip() for o in os.split(",") if o.strip()]
+        if os_list:
+            os_clauses = [models.Host.os.ilike(f"%{target_os}%") for target_os in os_list]
+            query = query.filter(or_(*os_clauses))
     
     # Filter by exploit (SIM / NÃO / Todos)
     if has_exploit is not None and has_exploit != "":
@@ -260,14 +271,19 @@ def get_unique_hosts(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """Retorna lista de hosts únicos (IP e hostname) para autocomplete nos filtros."""
+    """Retorna lista de hosts únicos (IP, hostname e SO) para preenchimento de filtros."""
     active_scan_ids = get_latest_scan_ids(db, asset_group_id)
     if not active_scan_ids:
         return []
-    hosts = db.query(models.Host.id, models.Host.ip_address, models.Host.hostname)\
-        .filter(models.Host.scan_id.in_(active_scan_ids))\
-        .order_by(models.Host.ip_address)\
-        .all()
+    allowed_ids = get_user_allowed_group_ids(db, current_user, action="view")
+    q = db.query(models.Host.id, models.Host.ip_address, models.Host.hostname, models.Host.os)\
+        .filter(models.Host.scan_id.in_(active_scan_ids))
+    if allowed_ids is not None:
+        if asset_group_id:
+            check_user_group_access(db, current_user, asset_group_id, action="view")
+        else:
+            q = q.filter(models.Host.asset_group_id.in_(allowed_ids))
+    hosts = q.order_by(models.Host.ip_address).all()
     seen = set()
     result = []
     for h in hosts:
@@ -277,8 +293,41 @@ def get_unique_hosts(
                 "id": h.id,
                 "ip": h.ip_address,
                 "ip_address": h.ip_address,
-                "hostname": h.hostname or ""
+                "hostname": h.hostname or "",
+                "os": h.os or ""
             })
+    return result
+
+@router.get("/unique-os", response_model=List[str])
+def get_unique_operating_systems(
+    asset_group_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Retorna a lista de Sistemas Operacionais únicos dos hosts no escopo ativo."""
+    active_scan_ids = get_latest_scan_ids(db, asset_group_id)
+    if not active_scan_ids:
+        return []
+    allowed_ids = get_user_allowed_group_ids(db, current_user, action="view")
+    q = db.query(models.Host.os)\
+        .filter(
+            models.Host.scan_id.in_(active_scan_ids),
+            models.Host.os != None,
+            models.Host.os != ""
+        )
+    if allowed_ids is not None:
+        if asset_group_id:
+            check_user_group_access(db, current_user, asset_group_id, action="view")
+        else:
+            q = q.filter(models.Host.asset_group_id.in_(allowed_ids))
+    rows = q.distinct().order_by(models.Host.os).all()
+    os_set = set()
+    result = []
+    for r in rows:
+        val = (r[0] or "").strip()
+        if val and val not in os_set:
+            os_set.add(val)
+            result.append(val)
     return result
 
 @router.get("/inventory", response_model=schemas.PaginatedInventoryOut)
@@ -323,9 +372,53 @@ def get_hosts_inventory(
             stats=schemas.InventoryStatsOut()
         )
 
-    base_query = db.query(models.Host)\
-        .join(models.AssetGroup, models.Host.asset_group_id == models.AssetGroup.id)\
-        .filter(models.Host.scan_id.in_(active_scan_ids))
+    # Subconsulta de vulnerabilidades ativas/residuais por host (excluindo Remediadas e Info/None, e aplicando exclusões de falsos-positivos)
+    active_vuln_subq = db.query(
+        models.Vulnerability.host_id.label("v_host_id"),
+        func.coalesce(func.sum(case((models.Vulnerability.severity == "Critical", 1), else_=0)), 0).label("active_critical_count"),
+        func.coalesce(func.sum(case((models.Vulnerability.severity == "High", 1), else_=0)), 0).label("active_high_count"),
+        func.coalesce(func.sum(case((models.Vulnerability.severity == "Medium", 1), else_=0)), 0).label("active_medium_count"),
+        func.coalesce(func.sum(case((models.Vulnerability.severity == "Low", 1), else_=0)), 0).label("active_low_count"),
+        func.coalesce(func.sum(case((and_(models.Vulnerability.severity == "Critical", models.Vulnerability.exploit_available == True), 1), else_=0)), 0).label("active_exploitable_critical_count")
+    ).filter(
+        models.Vulnerability.scan_id.in_(active_scan_ids),
+        ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated"]),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+    )
+    active_vuln_subq = apply_indicator_exclusion(active_vuln_subq, db)
+    active_vuln_subq = active_vuln_subq.group_by(models.Vulnerability.host_id).subquery()
+
+    dyn_critical = func.coalesce(active_vuln_subq.c.active_critical_count, 0)
+    dyn_high = func.coalesce(active_vuln_subq.c.active_high_count, 0)
+    dyn_medium = func.coalesce(active_vuln_subq.c.active_medium_count, 0)
+    dyn_low = func.coalesce(active_vuln_subq.c.active_low_count, 0)
+    dyn_exploitable = func.coalesce(active_vuln_subq.c.active_exploitable_critical_count, 0)
+
+    # Fórmula ISO 27001 de Risk Score por Host:
+    # (Crit * 10.0) + (High * 5.0) + (Med * 2.0) + (Low * 0.5) + (Crit_Exploit * 5.0)
+    dyn_risk_score = (
+        (dyn_critical * 10.0) +
+        (dyn_high * 5.0) +
+        (dyn_medium * 2.0) +
+        (dyn_low * 0.5) +
+        (dyn_exploitable * 5.0)
+    )
+
+    base_query = db.query(
+        models.Host,
+        dyn_critical.label("dyn_critical"),
+        dyn_high.label("dyn_high"),
+        dyn_medium.label("dyn_medium"),
+        dyn_low.label("dyn_low"),
+        dyn_exploitable.label("dyn_exploitable"),
+        dyn_risk_score.label("dyn_risk_score")
+    ).join(
+        models.AssetGroup, models.Host.asset_group_id == models.AssetGroup.id
+    ).outerjoin(
+        active_vuln_subq, models.Host.id == active_vuln_subq.c.v_host_id
+    ).filter(
+        models.Host.scan_id.in_(active_scan_ids)
+    )
 
     if search:
         st = f"%{search.strip()}%"
@@ -339,28 +432,31 @@ def get_hosts_inventory(
     if severity_filter:
         sev_clean = severity_filter.strip().lower()
         if sev_clean == "critical":
-            base_query = base_query.filter(models.Host.critical_count > 0)
+            base_query = base_query.filter(dyn_critical > 0)
         elif sev_clean == "high":
-            base_query = base_query.filter(models.Host.high_count > 0)
+            base_query = base_query.filter(dyn_high > 0)
         elif sev_clean == "medium":
-            base_query = base_query.filter(models.Host.medium_count > 0)
+            base_query = base_query.filter(dyn_medium > 0)
         elif sev_clean == "low":
-            base_query = base_query.filter(models.Host.low_count > 0)
+            base_query = base_query.filter(dyn_low > 0)
         elif sev_clean == "exploits":
-            base_query = base_query.filter(models.Host.exploitable_critical_count > 0)
+            base_query = base_query.filter(dyn_exploitable > 0)
 
     # Compute overall stats matching the filters
     stats_query = db.query(
         func.count(models.Host.id).label("total_hosts"),
-        func.coalesce(func.sum(models.Host.critical_count), 0).label("total_critical"),
-        func.coalesce(func.sum(models.Host.high_count), 0).label("total_high"),
-        func.coalesce(func.sum(models.Host.medium_count), 0).label("total_medium"),
-        func.coalesce(func.sum(models.Host.low_count), 0).label("total_low"),
-        func.coalesce(func.avg(models.Host.risk_score), 0.0).label("avg_risk_score"),
-        func.coalesce(func.max(models.Host.risk_score), 0.0).label("max_risk_score"),
-        func.coalesce(func.sum(case((models.Host.critical_count > 0, 1), else_=0)), 0).label("hosts_with_critical"),
-        func.coalesce(func.sum(case((models.Host.exploitable_critical_count > 0, 1), else_=0)), 0).label("hosts_with_exploits")
-    ).select_from(models.Host).join(models.AssetGroup, models.Host.asset_group_id == models.AssetGroup.id).filter(models.Host.scan_id.in_(active_scan_ids))
+        func.coalesce(func.sum(dyn_critical), 0).label("total_critical"),
+        func.coalesce(func.sum(dyn_high), 0).label("total_high"),
+        func.coalesce(func.sum(dyn_medium), 0).label("total_medium"),
+        func.coalesce(func.sum(dyn_low), 0).label("total_low"),
+        func.coalesce(func.avg(dyn_risk_score), 0.0).label("avg_risk_score"),
+        func.coalesce(func.max(dyn_risk_score), 0.0).label("max_risk_score"),
+        func.coalesce(func.sum(case((dyn_critical > 0, 1), else_=0)), 0).label("hosts_with_critical"),
+        func.coalesce(func.sum(case((dyn_exploitable > 0, 1), else_=0)), 0).label("hosts_with_exploits")
+    ).select_from(models.Host)\
+     .join(models.AssetGroup, models.Host.asset_group_id == models.AssetGroup.id)\
+     .outerjoin(active_vuln_subq, models.Host.id == active_vuln_subq.c.v_host_id)\
+     .filter(models.Host.scan_id.in_(active_scan_ids))
 
     if search:
         st = f"%{search.strip()}%"
@@ -373,15 +469,15 @@ def get_hosts_inventory(
     if severity_filter:
         sev_clean = severity_filter.strip().lower()
         if sev_clean == "critical":
-            stats_query = stats_query.filter(models.Host.critical_count > 0)
+            stats_query = stats_query.filter(dyn_critical > 0)
         elif sev_clean == "high":
-            stats_query = stats_query.filter(models.Host.high_count > 0)
+            stats_query = stats_query.filter(dyn_high > 0)
         elif sev_clean == "medium":
-            stats_query = stats_query.filter(models.Host.medium_count > 0)
+            stats_query = stats_query.filter(dyn_medium > 0)
         elif sev_clean == "low":
-            stats_query = stats_query.filter(models.Host.low_count > 0)
+            stats_query = stats_query.filter(dyn_low > 0)
         elif sev_clean == "exploits":
-            stats_query = stats_query.filter(models.Host.exploitable_critical_count > 0)
+            stats_query = stats_query.filter(dyn_exploitable > 0)
 
     stats_row = stats_query.first()
     total_hosts = stats_row.total_hosts if stats_row else 0
@@ -389,8 +485,8 @@ def get_hosts_inventory(
     total_high = int(stats_row.total_high) if stats_row else 0
     total_med = int(stats_row.total_medium) if stats_row else 0
     total_low = int(stats_row.total_low) if stats_row else 0
-    avg_risk = round(float(stats_row.avg_risk_score), 1) if stats_row else 0.0
-    max_risk = round(float(stats_row.max_risk_score), 1) if stats_row else 0.0
+    avg_risk = round(float(stats_row.avg_risk_score), 1) if stats_row and stats_row.avg_risk_score is not None else 0.0
+    max_risk = round(float(stats_row.max_risk_score), 1) if stats_row and stats_row.max_risk_score is not None else 0.0
     hosts_crit = int(stats_row.hosts_with_critical) if stats_row else 0
     hosts_exp = int(stats_row.hosts_with_exploits) if stats_row else 0
 
@@ -408,17 +504,17 @@ def get_hosts_inventory(
     )
 
     sort_column_map = {
-        "risk_score": models.Host.risk_score,
+        "risk_score": dyn_risk_score,
         "ip_address": models.Host.ip_address,
         "hostname": models.Host.hostname,
         "os": models.Host.os,
-        "critical_count": models.Host.critical_count,
-        "high_count": models.Host.high_count,
-        "medium_count": models.Host.medium_count,
-        "low_count": models.Host.low_count,
+        "critical_count": dyn_critical,
+        "high_count": dyn_high,
+        "medium_count": dyn_medium,
+        "low_count": dyn_low,
         "asset_group_name": models.AssetGroup.name
     }
-    col = sort_column_map.get(sort_by, models.Host.risk_score)
+    col = sort_column_map.get(sort_by, dyn_risk_score)
     if sort_order.lower() == "asc":
         ordered_query = base_query.order_by(col.asc(), models.Host.id.asc())
     else:
@@ -427,11 +523,17 @@ def get_hosts_inventory(
     total = total_hosts
     total_pages = max(1, (total + page_size - 1) // page_size)
     offset = (page - 1) * page_size
-    hosts = ordered_query.offset(offset).limit(page_size).all()
+    hosts_rows = ordered_query.offset(offset).limit(page_size).all()
 
     items = []
-    for h in hosts:
+    for h, d_crit, d_high, d_med, d_low, d_exp, d_risk in hosts_rows:
         item = schemas.HostOut.model_validate(h)
+        item.critical_count = int(d_crit or 0)
+        item.high_count = int(d_high or 0)
+        item.medium_count = int(d_med or 0)
+        item.low_count = int(d_low or 0)
+        item.exploitable_critical_count = int(d_exp or 0)
+        item.risk_score = round(float(d_risk or 0.0), 1)
         item.asset_group_name = h.asset_group.name if h.asset_group else ""
         items.append(item)
 
@@ -477,6 +579,30 @@ def update_vulnerability_treatment(
         raise HTTPException(status_code=404, detail="Vulnerabilidade não encontrada.")
 
     check_user_group_access(db, current_user, v.asset_group_id, action="treat")
+
+    # Bloquear seleção manual de 'In_Action_Plan'
+    if data.treatment_status == "In_Action_Plan":
+        raise HTTPException(
+            status_code=400,
+            detail="O status 'Em Plano de Ação' não pode ser selecionado manualmente. A vinculação ocorre somente mediante a criação de um plano de ação."
+        )
+
+    # Bloquear alteração manual se a vulnerabilidade estiver associada a um plano de ação ativo
+    active_plan = db.query(models.ActionPlan).join(
+        models.ActionTask, models.ActionTask.action_plan_id == models.ActionPlan.id
+    ).join(
+        models.ActionTaskVulnerabilityLink, models.ActionTaskVulnerabilityLink.action_task_id == models.ActionTask.id
+    ).filter(
+        models.ActionTaskVulnerabilityLink.vulnerability_id == v.id,
+        models.ActionPlan.status.in_(["PLANNED", "IN_PROGRESS"])
+    ).first()
+
+    if active_plan or v.treatment_status == "In_Action_Plan":
+        plan_ref = f" #{active_plan.id} ('{active_plan.title}')" if active_plan else ""
+        raise HTTPException(
+            status_code=400,
+            detail=f"Não é possível alterar manualmente o status de tratamento: esta vulnerabilidade está associada a um plano de ação ativo{plan_ref}. O tratamento é gerenciado exclusivamente pelo plano de ação até sua conclusão/remediação."
+        )
 
     # Nota obrigatória
     if not data.treatment_notes or not data.treatment_notes.strip():
@@ -562,6 +688,33 @@ def bulk_update_vulnerability_treatment(
             detail="A nota de auditoria é obrigatória. Informe uma justificativa para a alteração em lote."
         )
 
+    # Bloquear seleção manual de 'In_Action_Plan'
+    if data.treatment_status == "In_Action_Plan":
+        raise HTTPException(
+            status_code=400,
+            detail="O status 'Em Plano de Ação' não pode ser selecionado manualmente. A vinculação ocorre somente mediante a criação de um plano de ação."
+        )
+
+    # Verificar se alguma vulnerabilidade selecionada está vinculada a plano de ação ativo
+    plan_linked = db.query(models.ActionTaskVulnerabilityLink.vulnerability_id).join(
+        models.ActionTask, models.ActionTaskVulnerabilityLink.action_task_id == models.ActionTask.id
+    ).join(
+        models.ActionPlan, models.ActionTask.action_plan_id == models.ActionPlan.id
+    ).filter(
+        models.ActionTaskVulnerabilityLink.vulnerability_id.in_(data.vulnerability_ids),
+        models.ActionPlan.status.in_(["PLANNED", "IN_PROGRESS"])
+    ).all()
+    in_plan_vulns = db.query(models.Vulnerability.id).filter(
+        models.Vulnerability.id.in_(data.vulnerability_ids),
+        models.Vulnerability.treatment_status == "In_Action_Plan"
+    ).all()
+    protected_ids = set([r[0] for r in plan_linked] + [r[0] for r in in_plan_vulns])
+    if protected_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(protected_ids)} vulnerabilidade(s) selecionada(s) estão associadas a Planos de Ação ativos e seu tratamento é gerenciado exclusivamente pelo plano."
+        )
+
     # Verifica permissão para cada grupo de ativos envolvido
     distinct_group_ids = [
         r[0] for r in db.query(models.Vulnerability.asset_group_id).filter(
@@ -614,12 +767,41 @@ def get_host_details(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """Obtém os detalhes de um Host e o resumo de suas vulnerabilidades."""
+    """Obtém os detalhes de um Host e o resumo de suas vulnerabilidades ativas/residuais."""
     h = db.query(models.Host).filter(models.Host.id == host_id).first()
     if not h:
         raise HTTPException(status_code=404, detail="Host não encontrado.")
     check_user_group_access(db, current_user, h.asset_group_id, action="view")
     out = schemas.HostOut.model_validate(h)
     out.asset_group_name = h.asset_group.name if h.asset_group else ""
+
+    # Calcula contadores e risk score dinâmicos sobre as vulnerabilidades ativas (não remediadas)
+    active_vulns_q = db.query(
+        models.Vulnerability.severity,
+        models.Vulnerability.exploit_available
+    ).filter(
+        models.Vulnerability.host_id == host_id,
+        models.Vulnerability.scan_id == h.scan_id,
+        ~models.Vulnerability.treatment_status.in_(["Remediated", "remediated"]),
+        ~models.Vulnerability.severity.in_(["Info", "info", "None", "none"])
+    )
+    active_vulns = apply_indicator_exclusion(active_vulns_q, db).all()
+
+    crit = sum(1 for v in active_vulns if v.severity == "Critical")
+    high = sum(1 for v in active_vulns if v.severity == "High")
+    med = sum(1 for v in active_vulns if v.severity == "Medium")
+    low = sum(1 for v in active_vulns if v.severity == "Low")
+    exp = sum(1 for v in active_vulns if v.severity == "Critical" and v.exploit_available)
+
+    out.critical_count = crit
+    out.high_count = high
+    out.medium_count = med
+    out.low_count = low
+    out.exploitable_critical_count = exp
+    out.risk_score = round(
+        (crit * 10.0) + (high * 5.0) + (med * 2.0) + (low * 0.5) + (exp * 5.0),
+        1
+    )
+
     populate_host_active_plans([out], db)
     return out
