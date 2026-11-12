@@ -9,14 +9,14 @@
   <link rel="stylesheet" href="/static/css/fonts.css?v=20261006_v1">
   
   <!-- Compiled Static Tailwind CSS -->
-  <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20261027_v70">
+  <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20261112_v79">
 
   <!-- Local Chart.js & Lucide Icons -->
   <script src="/static/vendor/chart.min.js?v=20261006_v1"></script>
   <script src="/static/vendor/lucide.min.js?v=20261006_v1"></script>
 
   <!-- Custom Styles -->
-  <link rel="stylesheet" href="/static/css/styles.css?v=20261002_v58">
+  <link rel="stylesheet" href="/static/css/styles.css?v=20261112_v79">
 </head>
 <body class="font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200">
 
@@ -5261,11 +5261,11 @@
   </div>
 
   <!-- Modal Global de Informações da Postura de Segurança -->
-  <div id="posture-info-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm" onclick="if(event.target === this) App.closePostureModal()">
-    <div class="relative w-full max-w-xl max-h-[88vh] flex flex-col rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+  <div id="posture-info-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 modal-backdrop bg-slate-950/80 backdrop-blur-md" onclick="if(event.target === this) App.closePostureModal()">
+    <div class="relative w-full max-w-xl max-h-[88vh] flex flex-col rounded-2xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#131B2E] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 glass-panel">
       
       <!-- Top Header Fixo do Modal -->
-      <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 shrink-0">
+      <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90 shrink-0">
         <div class="flex items-center space-x-3">
           <div class="w-9 h-9 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 flex items-center justify-center shrink-0">
             <i data-lucide="shield-check" class="w-5 h-5"></i>
@@ -5281,21 +5281,21 @@
       </div>
 
       <!-- Corpo Rolável do Modal -->
-      <div class="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+      <div class="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs bg-white dark:bg-[#131B2E] text-slate-800 dark:text-slate-100">
 
         <!-- Resumo Atual do Parque (Mini-Strip em 3 Caixas Limpas) -->
         <div class="p-3.5 rounded-xl bg-slate-100/70 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800">
           <div class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Diagnóstico Atual do seu Escopo</div>
           <div class="grid grid-cols-3 gap-2 text-center">
-            <div class="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60">
+            <div class="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
               <span class="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">1. Risco Ponderado</span>
               <span id="posture-modal-raw-risk-val" class="text-sm sm:text-base font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums">—</span>
             </div>
-            <div class="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60">
+            <div class="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
               <span class="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">2. Risco / Host</span>
               <span id="posture-modal-risk-val" class="text-sm sm:text-base font-bold font-mono text-amber-600 dark:text-amber-400 tabular-nums">—</span>
             </div>
-            <div class="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60">
+            <div class="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
               <span class="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">3. Postura Final</span>
               <span class="text-sm sm:text-base font-bold font-mono tabular-nums">
                 <span id="posture-modal-posture-val" class="text-teal-600 dark:text-teal-400">—</span><span class="text-[11px] text-slate-400">/100</span>
@@ -5347,7 +5347,7 @@
 
           <!-- Régua das 4 Faixas com Contraste Perfeito no Modo Escuro -->
           <div class="ml-7 space-y-1.5 text-xs">
-            <div id="band-low" class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center justify-between text-slate-700 dark:text-slate-200 transition-colors">
+            <div id="band-low" class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex items-center justify-between text-slate-700 dark:text-slate-200 transition-colors">
               <div class="flex items-center space-x-2">
                 <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
                 <span class="font-medium">Risco até 20.0</span>
@@ -5356,7 +5356,7 @@
               <span class="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">100 a 80</span>
             </div>
 
-            <div id="band-med" class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center justify-between text-slate-700 dark:text-slate-200 transition-colors">
+            <div id="band-med" class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex items-center justify-between text-slate-700 dark:text-slate-200 transition-colors">
               <div class="flex items-center space-x-2">
                 <span class="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0"></span>
                 <span class="font-medium">Risco 20.1 a 60.0</span>
@@ -5365,7 +5365,7 @@
               <span class="font-mono font-bold text-amber-600 dark:text-amber-400 shrink-0">79 a 60</span>
             </div>
 
-            <div id="band-high" class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center justify-between text-slate-700 dark:text-slate-200 transition-colors">
+            <div id="band-high" class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex items-center justify-between text-slate-700 dark:text-slate-200 transition-colors">
               <div class="flex items-center space-x-2">
                 <span class="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0"></span>
                 <span class="font-medium">Risco 60.1 a 120.0</span>
@@ -5374,7 +5374,7 @@
               <span class="font-mono font-bold text-orange-600 dark:text-orange-400 shrink-0">59 a 30</span>
             </div>
 
-            <div id="band-crit" class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center justify-between text-slate-700 dark:text-slate-200 transition-colors">
+            <div id="band-crit" class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex items-center justify-between text-slate-700 dark:text-slate-200 transition-colors">
               <div class="flex items-center space-x-2">
                 <span class="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0"></span>
                 <span class="font-medium">Risco > 120.0</span>
@@ -5388,7 +5388,7 @@
       </div>
 
       <!-- Rodapé Fixo do Modal -->
-      <div class="p-3.5 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 flex items-center justify-between shrink-0 text-xs">
+      <div class="p-3.5 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90 flex items-center justify-between shrink-0 text-xs">
         <span class="text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
           <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0"></i>
           <span>Remediações reduzem o Risco Total e elevam a Postura.</span>
@@ -5492,9 +5492,9 @@
 
 
   <!-- Application Scripts -->
-  <script src="/static/js/api.js?v=20261111_v78"></script>
-  <script src="/static/js/charts.js?v=20261111_v78"></script>
-  <script src="/static/js/app.js?v=20261111_v78"></script>
+  <script src="/static/js/api.js?v=20261112_v79"></script>
+  <script src="/static/js/charts.js?v=20261112_v79"></script>
+  <script src="/static/js/app.js?v=20261112_v79"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       if (window.lucide && typeof lucide.createIcons === 'function') {

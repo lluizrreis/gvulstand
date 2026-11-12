@@ -1302,6 +1302,19 @@ html:not(.dark) .modal-backdrop .glass-panel pre {
   color: #0F172A !important;
 }
 
+/* Modal de Postura de Segurança - Proteção Dark / Light */
+html.dark #posture-info-modal .glass-panel,
+html.dark #posture-info-modal .overflow-y-auto {
+  background-color: #131B2E !important;
+  color: #F1F5F9 !important;
+}
+html:not(.dark) #posture-info-modal .glass-panel,
+html:not(.dark) #posture-info-modal .overflow-y-auto {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+}
+
+
 html.dark .border-slate-800,
 html.dark .border-slate-800\/80,
 html.dark .border-slate-800\/60,
