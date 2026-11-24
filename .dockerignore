@@ -9,3 +9,6 @@ data/uploads/*
 .env
 .git
 .vscode
+skills-lock.json
+*.crt
+*.key
